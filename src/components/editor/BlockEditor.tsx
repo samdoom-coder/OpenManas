@@ -1,3 +1,4 @@
+
 import { useState, useRef, useEffect } from 'react'
 import { useAppStore } from '@/stores/appStore'
 import { BlockRegistry, detectMarkdownShortcut, stripMarkdownPrefix } from '@/lib/blockRegistry'
@@ -90,6 +91,8 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
   const [fontOpen, setFontOpen] = useState(false)
   const [commentText, setCommentText] = useState('')
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false)
+  const [hasSelection, setHasSelection] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
   const { push } = useToast()
   const { addComment, user, pages, databases, comments } = useAppStore() as any
   const commentCount = (comments as any[]).filter((c:any)=> c.blockId===block.id).length
@@ -97,7 +100,6 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
   const insertEmoji = (emoji:string) => {
     if (contentRef.current) {
       contentRef.current.focus()
-      // insert at cursor
       document.execCommand('insertText', false, emoji)
       handleInput()
     } else {
@@ -139,32 +141,65 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
     closeSlash()
   }
 
-  // Fix reverse typing: uncontrolled contentEditable, sync only when not focused or type changes
   useEffect(()=> {
     const el = contentRef.current
     if (!el) return
-    // Don't clobber while user is typing (focused)
     const isFocused = document.activeElement === el
     if (isFocused) return
     const current = el.innerHTML
     const target = block.content || ''
-    // Only update if different to avoid cursor jumps
     if (current !== target) {
-      // For plain text blocks, set innerHTML; for code keep whitespace
       el.innerHTML = target
     }
   }, [block.content, block.type])
 
-  // Initialize on mount and when type changes
   useEffect(()=> {
     const el = contentRef.current
     if (el && (el.innerHTML !== (block.content||''))) {
-      // Don't overwrite if focused and user is typing
       if (document.activeElement !== el) {
         el.innerHTML = block.content || ''
       }
     }
   }, [block.id, block.type])
+
+  // close drag menu on outside click
+  useEffect(()=> {
+    if (!actionsMenuOpen) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (menuRef.current && !menuRef.current.contains(target) && !target.closest('[data-drag-handle]')) {
+        setActionsMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return ()=> document.removeEventListener('mousedown', handler)
+  }, [actionsMenuOpen])
+
+  const checkSelection = () => {
+    const sel = window.getSelection()
+    if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+      setHasSelection(false)
+      return
+    }
+    const anchor = sel.anchorNode
+    const focusNode = sel.focusNode
+    const el = contentRef.current
+    if (el && ((anchor && el.contains(anchor)) || (focusNode && el.contains(focusNode)))) {
+      setHasSelection(true)
+    } else {
+      setHasSelection(false)
+    }
+  }
+  const handleMouseUp = () => setTimeout(checkSelection, 10)
+  const handleKeyUp = () => setTimeout(checkSelection, 10)
+  const handleClickContent = () => setTimeout(checkSelection, 10)
+
+  useEffect(()=> {
+    if (!focused) {
+      const id = setTimeout(()=> setHasSelection(false), 250)
+      return ()=> clearTimeout(id)
+    }
+  }, [focused])
 
   const handleInput = () => {
     const el = contentRef.current
@@ -176,17 +211,14 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
       return
     }
     if (slashOpen) closeSlash()
-    // markdown detection only for paragraph and when user types space at end or we have full prefix
     if (block.type==='paragraph' && text.length>1) {
       const md = detectMarkdownShortcut(text)
       if (md) {
         const stripped = stripMarkdownPrefix(text, md)
         onMarkdown(md, stripped)
-        // set stripped content without prefix, defer to let state update
         setTimeout(()=> {
           if (contentRef.current) {
             contentRef.current.innerHTML = stripped
-            // move cursor to end
             const range = document.createRange()
             range.selectNodeContents(contentRef.current)
             range.collapse(false)
@@ -198,20 +230,17 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         return
       }
     }
-    // store html to preserve formatting, but for todo etc we use text
     onChange({ content: html })
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key==='Enter' && !e.shiftKey) {
       if (slashOpen) {
-        // let slash handle
         return
       }
       e.preventDefault()
       const listTypes = ['todo','bulleted_list','numbered_list']
       const next = listTypes.includes(block.type) ? block.type : 'paragraph'
-      // if todo/bullet and empty, exit list to paragraph
       const isEmpty = !(contentRef.current?.innerText || '').trim()
       if (isEmpty && listTypes.includes(block.type)) {
         onChange({ type: 'paragraph' as any })
@@ -237,6 +266,9 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
     }
     if (e.key==='Escape' && slashOpen) {
       closeSlash()
+    }
+    if (e.key==='Escape' && actionsMenuOpen) {
+      setActionsMenuOpen(false)
     }
   }
 
@@ -264,37 +296,89 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
     { name:'Red', color:'#991b1b', bg:'#fee2e2' },
   ]
 
-  // Special render for divider - not editable
-  if (block.type==='divider') {
-    return (
-      <div className={cn("group relative flex gap-2 rounded-xl px-1 py-2 hover:bg-accent/30", focused && "bg-accent/20", dragId===block.id && "opacity-50")}
-        draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
-      >
-        <div className="flex items-center gap-0.5 pt-1 opacity-0 group-hover:opacity-100 shrink-0">
-          <button className="p-1 rounded-lg hover:bg-accent cursor-grab"><GripVertical size={14}/></button>
+  // helper to render drag-handle menu (full width pattern)
+  const renderDragMenu = () => (
+    <>
+      <div className="absolute left-1 top-1.5 z-10 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          data-drag-handle
+          onClick={(e)=> { e.stopPropagation(); setActionsMenuOpen(v=>!v) }}
+          className={cn("p-1.5 rounded-lg border shadow-sm bg-card hover:bg-accent cursor-grab flex items-center justify-center", actionsMenuOpen && "opacity-100 bg-accent border-violet-200")}
+          title="Click for options • Drag to reorder"
+        >
+          <GripVertical size={14} />
+        </button>
+      </div>
+      {actionsMenuOpen && (
+        <div ref={menuRef} className="absolute left-1 top-9 z-20 bg-popover border rounded-2xl shadow-xl p-3 w-[340px] max-w-[92vw] animate-in fade-in">
+          <div className="px-1 pb-2 text-[10px] font-semibold tracking-widest text-muted-foreground uppercase flex items-center justify-between">
+            <span className="flex items-center gap-1.5"><Settings size={12}/> Block options</span>
+            <button onClick={()=> setActionsMenuOpen(false)} className="p-1 hover:bg-accent rounded-lg text-xs">✕</button>
+          </div>
+          <BlockActions
+            block={block}
+            onChange={onChange}
+            onDuplicate={()=> { setActionsMenuOpen(false); onDuplicate() }}
+            onDelete={()=> { setActionsMenuOpen(false); onDelete() }}
+            onMove={onMove}
+            onColor={()=> { setActionsMenuOpen(false); setColorOpen(true) }}
+            onComment={()=> { setActionsMenuOpen(false); setCommentOpen(true) }}
+            currentType={block.type}
+            onTurnInto={(t)=> { setActionsMenuOpen(false); handleSlashSelect(t) }}
+            commentCount={commentCount}
+            forceShow
+          />
+          <div className="flex items-center gap-1 mt-3 pt-3 border-t">
+            <button onClick={()=> onMove('up')} className="flex-1 py-2 rounded-xl border hover:bg-accent text-xs flex items-center justify-center gap-1.5"><ArrowUp size={12}/> Move up</button>
+            <button onClick={()=> onMove('down')} className="flex-1 py-2 rounded-xl border hover:bg-accent text-xs flex items-center justify-center gap-1.5"><ArrowDown size={12}/> Move down</button>
+          </div>
+          <div className="text-[10px] text-muted-foreground mt-2.5 text-center leading-relaxed">Select text to see formatting toolbar • Drag handle to reorder • Click handle for more</div>
         </div>
-        <div className="flex-1 py-2"><hr className="border-t" /></div>
-        <BlockActions block={block} onChange={onChange} onDuplicate={onDuplicate} onDelete={onDelete} onMove={onMove} onColor={()=> setColorOpen(!colorOpen)} onComment={()=> setCommentOpen(true)} currentType={block.type} onTurnInto={handleSlashSelect} commentCount={commentCount} />
-        {colorOpen && <ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} />}
+      )}
+    </>
+  )
+
+  const renderSelectionBubble = () => {
+    if (!hasSelection || !focused) return null
+    return (
+      <div className="absolute -top-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-popover border rounded-xl shadow-xl p-1.5 max-w-[95vw] overflow-x-auto">
+        <button onMouseDown={e=>{e.preventDefault(); document.execCommand('bold'); handleInput()}} className="px-2.5 py-1.5 rounded-lg hover:bg-accent font-bold text-sm shrink-0">B</button>
+        <button onMouseDown={e=>{e.preventDefault(); document.execCommand('italic'); handleInput()}} className="px-2.5 py-1.5 rounded-lg hover:bg-accent italic text-sm shrink-0">I</button>
+        <button onMouseDown={e=>{e.preventDefault(); document.execCommand('underline'); handleInput()}} className="px-2.5 py-1.5 rounded-lg hover:bg-accent underline text-sm shrink-0">U</button>
+        <button onMouseDown={e=>{e.preventDefault(); document.execCommand('strikeThrough'); handleInput()}} className="px-2.5 py-1.5 rounded-lg hover:bg-accent line-through text-sm shrink-0">S</button>
+        <div className="w-px h-6 bg-border mx-1 shrink-0" />
+        <button onMouseDown={e=>{e.preventDefault(); setColorOpen(true)}} className="p-1.5 rounded-lg hover:bg-accent shrink-0" title="Color"><Palette size={14}/></button>
+        <button onMouseDown={e=>{e.preventDefault(); setCommentOpen(true)}} className="p-1.5 rounded-lg hover:bg-accent relative shrink-0" title="Comment"><MessageSquare size={14}/>{commentCount ? <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] bg-violet-500 text-white text-[9px] rounded-full grid place-items-center px-0.5">{commentCount}</span> : null}</button>
+        <button onMouseDown={e=>{e.preventDefault(); onDuplicate()}} className="p-1.5 rounded-lg hover:bg-accent shrink-0" title="Duplicate"><Copy size={14}/></button>
+        <div className="w-px h-6 bg-border mx-1 shrink-0" />
+        <button onMouseDown={e=>{e.preventDefault(); setActionsMenuOpen(true)}} className="px-3 py-1.5 rounded-lg bg-violet-500 text-white hover:bg-violet-600 text-xs font-medium whitespace-nowrap shrink-0">More</button>
       </div>
     )
   }
 
-  // Special render for todo
-  if (block.type==='todo') {
+  // Special render for divider - full width, no side flex
+  if (block.type==='divider') {
     return (
-      <div className={cn("group relative flex gap-2 rounded-xl px-1 py-1 hover:bg-accent/30", focused && "bg-accent/20", dragId===block.id && "opacity-50")}
+      <div className={cn("group relative rounded-xl px-1 py-2 hover:bg-accent/30", focused && "bg-accent/20", dragId===block.id && "opacity-50")}
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
-        <div className="flex items-center gap-0.5 pt-1 opacity-0 group-hover:opacity-100 shrink-0">
-          <button className="p-1 rounded-lg hover:bg-accent cursor-grab"><GripVertical size={14}/></button>
-          <div className="flex flex-col gap-0.5">
-            <button onClick={()=> onMove('up')} className="p-1 rounded hover:bg-accent"><ArrowUp size={12}/></button>
-            <button onClick={()=> onMove('down')} className="p-1 rounded hover:bg-accent"><ArrowDown size={12}/></button>
-          </div>
-        </div>
-        <div className="flex-1 min-w-0 relative flex items-center gap-2 py-1">
-          <input type="checkbox" checked={!!block.properties.checked} onChange={e=> onChange({ properties:{ ...block.properties, checked:e.target.checked }})} className="rounded w-4 h-4 shrink-0" />
+        {renderDragMenu()}
+        <div className="w-full py-2"><hr className="border-t" /></div>
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
+        <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
+      </div>
+    )
+  }
+
+  // Special render for todo - full width
+  if (block.type==='todo') {
+    return (
+      <div className={cn("group relative rounded-xl px-1 py-1 hover:bg-accent/30", focused && "bg-accent/20", dragId===block.id && "opacity-50")}
+        draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
+      >
+        {renderDragMenu()}
+        <div className="w-full min-w-0 relative flex items-center gap-2 py-1">
+          <input type="checkbox" checked={!!block.properties.checked} onChange={e=> onChange({ properties:{ ...block.properties, checked:e.target.checked }})} className="rounded w-4 h-4 shrink-0 ml-1 sm:ml-7" />
           <div
             id={`block-${block.id}`}
             ref={contentRef}
@@ -304,30 +388,31 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
             onBlur={()=> {setFocused(false); setTimeout(()=> setShowToolbar(false), 200)}}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
+            onMouseUp={handleMouseUp}
+            onKeyUp={handleKeyUp}
+            onClick={handleClickContent}
             data-placeholder="To-do"
             style={{ color: (block.properties.color as string)||undefined, background: (block.properties.background as string)||undefined, fontSize: (block.properties.fontSize as number) ? `${block.properties.fontSize}px` : undefined, fontFamily: (block.properties.fontFamily as string)==='caveat' ? "'Caveat', cursive" : (block.properties.fontFamily as string)==='mono' ? 'JetBrains Mono, monospace' : (block.properties.fontFamily as string)==='serif' ? 'Georgia, serif' : undefined, fontWeight: (block.properties.fontWeight as string)||undefined, fontStyle: (block.properties.italic as boolean) ? 'italic' : undefined }}
             className={cn("flex-1 outline-none min-h-[24px] text-[15px] leading-6 empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground", (block.properties.checked as boolean) && "line-through text-muted-foreground")}
           />
-          {focused && showToolbar && <FloatingToolbar onFormat={(cmd)=> {document.execCommand(cmd); handleInput()}} />}
+          {hasSelection && focused && renderSelectionBubble()}
+          {!hasSelection && focused && showToolbar && <FloatingToolbar onFormat={(cmd)=> {document.execCommand(cmd); handleInput()}} />}
           {slashOpen && <SlashMenu query={slashQuery} onSelect={handleSlashSelect} onClose={handleCloseSlash} />}
         </div>
-        <BlockActions block={block} onChange={onChange} onDuplicate={onDuplicate} onDelete={onDelete} onMove={onMove} onColor={()=> setColorOpen(!colorOpen)} onComment={()=> setCommentOpen(true)} currentType={block.type} onTurnInto={handleSlashSelect} commentCount={commentCount} />
-        {colorOpen && <ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} />}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
   }
 
-  // Special render for image
+  // Special render for image - full width
   if (block.type==='image') {
     return (
-      <div className={cn("group relative flex gap-2 rounded-xl px-1 py-2 hover:bg-accent/30", dragId===block.id && "opacity-50")}
+      <div className={cn("group relative rounded-xl px-1 py-2 hover:bg-accent/30", dragId===block.id && "opacity-50")}
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
-          <button className="p-1 rounded-lg hover:bg-accent cursor-grab"><GripVertical size={14}/></button>
-        </div>
-        <div className="flex-1 min-w-0 space-y-2">
+        {renderDragMenu()}
+        <div className="w-full min-w-0 space-y-2">
           {block.content ? (
             <div className="rounded-xl overflow-hidden border bg-muted">
               <img src={block.content} alt="" className="max-h-[400px] w-full object-contain bg-white" onError={e=> (e.currentTarget.style.display='none')} />
@@ -339,11 +424,9 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           ) : (
             <ImageUpload onUpload={(url)=> onChange({ content:url })} onUrl={(url)=> onChange({ content:url })} />
           )}
-          {/* Caption editable */}
-          <div className="text-xs text-muted-foreground px-1">Caption: <span ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} data-placeholder="Add caption..." className="outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground" /></div>
+          <div className="text-xs text-muted-foreground px-1">Caption: <span ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} onMouseUp={handleMouseUp} data-placeholder="Add caption..." className="outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground" /></div>
         </div>
-        <BlockActions block={block} onChange={onChange} onDuplicate={onDuplicate} onDelete={onDelete} onMove={onMove} onColor={()=> setColorOpen(!colorOpen)} onComment={()=> setCommentOpen(true)} currentType={block.type} onTurnInto={handleSlashSelect} commentCount={commentCount} />
-        {colorOpen && <ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} />}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -352,13 +435,11 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
   // Special render for file
   if (block.type==='file' || block.type==='audio') {
     return (
-      <div className={cn("group relative flex gap-2 rounded-xl px-1 py-2 hover:bg-accent/30", dragId===block.id && "opacity-50")}
+      <div className={cn("group relative rounded-xl px-1 py-2 hover:bg-accent/30", dragId===block.id && "opacity-50")}
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
-          <button className="p-1 rounded-lg hover:bg-accent cursor-grab"><GripVertical size={14}/></button>
-        </div>
-        <div className="flex-1 min-w-0">
+        {renderDragMenu()}
+        <div className="w-full min-w-0">
           {block.content ? (
             <div className="flex items-center gap-3 p-3 rounded-xl border bg-card">
               <div className="w-10 h-10 rounded-lg bg-violet-500/10 grid place-items-center">📎</div>
@@ -372,8 +453,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           ) : null}
           <FileUploadSimple onUpload={(url)=> onChange({ content:url })} accept={block.type==='audio' ? 'audio/*' : '*/*'} />
         </div>
-        <BlockActions block={block} onChange={onChange} onDuplicate={onDuplicate} onDelete={onDelete} onMove={onMove} onColor={()=> setColorOpen(!colorOpen)} onComment={()=> setCommentOpen(true)} currentType={block.type} onTurnInto={handleSlashSelect} commentCount={commentCount} />
-        {colorOpen && <ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} />}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -382,13 +462,11 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
   // Special render for video
   if (block.type==='video') {
     return (
-      <div className={cn("group relative flex gap-2 rounded-xl px-1 py-2 hover:bg-accent/30", dragId===block.id && "opacity-50")}
+      <div className={cn("group relative rounded-xl px-1 py-2 hover:bg-accent/30", dragId===block.id && "opacity-50")}
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 shrink-0">
-          <button className="p-1 rounded-lg hover:bg-accent cursor-grab"><GripVertical size={14}/></button>
-        </div>
-        <div className="flex-1 min-w-0 space-y-2">
+        {renderDragMenu()}
+        <div className="w-full min-w-0 space-y-2">
           {block.content ? (
             <div className="rounded-xl overflow-hidden border bg-black aspect-video grid place-items-center">
               {block.content.includes('youtube') || block.content.includes('youtu.be') ? (
@@ -400,48 +478,27 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           ) : null}
           <input defaultValue={block.content} onBlur={e=> onChange({ content:e.target.value })} placeholder="Paste video URL (YouTube, mp4) — e.g. https://www.youtube.com/watch?v=..." className="w-full text-sm border rounded-xl px-3 py-2 bg-background" />
         </div>
-        <BlockActions block={block} onChange={onChange} onDuplicate={onDuplicate} onDelete={onDelete} onMove={onMove} onColor={()=> setColorOpen(!colorOpen)} onComment={()=> setCommentOpen(true)} currentType={block.type} onTurnInto={handleSlashSelect} commentCount={commentCount} />
-        {colorOpen && <ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} />}
-        <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
-      </div>
-    )
-  }
-
-  // Table - FULL BLOCK width, side options on click
-  if (block.type==='table') {
-    return (
-      <div className={cn("group relative rounded-xl px-1 py-2 hover:bg-accent/30", dragId===block.id && "opacity-50", focused && "bg-accent/20")}
-        draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
-      >
-        {/* Drag handle - overlay left, doesn't shrink table */}
-        <div className="absolute left-1 top-2 z-10 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button className="p-1 rounded-lg bg-card border shadow-sm hover:bg-accent cursor-grab"><GripVertical size={14}/></button>
-        </div>
-        {/* Table gets FULL width - no side flex taking space */}
-        <div className="w-full">
-          <TableBlock content={block.content} onChange={(html)=> onChange({ content: html })} />
-        </div>
-        {/* Side options trigger - click to show, so table has full block when hidden */}
-        <button
-          onClick={()=> setActionsMenuOpen(!actionsMenuOpen)}
-          className={cn("absolute right-1 top-1 z-10 p-1.5 rounded-lg bg-card border shadow-sm transition-all hover:bg-accent", actionsMenuOpen ? "opacity-100 bg-accent" : "opacity-0 group-hover:opacity-100")}
-          title="Table options"
-        >
-          <MoreHorizontal size={14}/>
-        </button>
-        {actionsMenuOpen && (
-          <div className="absolute right-1 top-9 z-20 bg-popover border rounded-2xl shadow-xl p-2 animate-in fade-in">
-            <div className="px-2 pb-1 text-[10px] font-semibold tracking-widest text-muted-foreground uppercase flex items-center justify-between">Table options <button onClick={()=> setActionsMenuOpen(false)} className="p-0.5 hover:bg-accent rounded">✕</button></div>
-            <BlockActions block={block} onChange={onChange} onDuplicate={onDuplicate} onDelete={onDelete} onMove={onMove} onColor={()=> { setActionsMenuOpen(false); setColorOpen(true) }} onComment={()=> { setActionsMenuOpen(false); setCommentOpen(true) }} currentType={block.type} onTurnInto={handleSlashSelect} commentCount={commentCount} />
-          </div>
-        )}
         {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
   }
 
-  // Callout, toggle, bookmark, etc handled as enhanced text blocks below, but table/video/image need special, others fallback to text editable with custom wrapper
+  // Table - FULL BLOCK width, options via drag handle now (kept secondary options button for convenience)
+  if (block.type==='table') {
+    return (
+      <div className={cn("group relative rounded-xl px-1 py-2 hover:bg-accent/30", dragId===block.id && "opacity-50", focused && "bg-accent/20")}
+        draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
+      >
+        {renderDragMenu()}
+        <div className="w-full">
+          <TableBlock content={block.content} onChange={(html)=> onChange({ content: html })} />
+        </div>
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
+        <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
+      </div>
+    )
+  }
 
   const isQuote = block.type==='quote'
   const isCode = block.type==='code'
@@ -452,14 +509,11 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
 
   if (isCode) {
     return (
-      <div className={cn("group relative flex gap-2 rounded-xl px-1 py-1 hover:bg-accent/30", focused && "bg-accent/20", dragId===block.id && "opacity-50")}
+      <div className={cn("group relative rounded-xl px-1 py-1 hover:bg-accent/30", focused && "bg-accent/20", dragId===block.id && "opacity-50")}
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
-        <div className="flex items-center gap-0.5 pt-1 opacity-0 group-hover:opacity-100 shrink-0">
-          <button className="p-1 rounded-lg hover:bg-accent cursor-grab"><GripVertical size={14}/></button>
-          <div className="flex flex-col gap-0.5"><button onClick={()=> onMove('up')} className="p-1 rounded hover:bg-accent"><ArrowUp size={12}/></button><button onClick={()=> onMove('down')} className="p-1 rounded hover:bg-accent"><ArrowDown size={12}/></button></div>
-        </div>
-        <div className="flex-1 min-w-0 relative">
+        {renderDragMenu()}
+        <div className="w-full min-w-0 relative">
           <div className="flex items-center gap-2 mb-1">
             <Code size={14} className="text-muted-foreground" />
             <select value={(block.properties.language as string)||'plaintext'} onChange={e=> onChange({ properties:{ ...block.properties, language:e.target.value}})} className="text-xs border rounded-lg px-1.5 py-1 bg-background">
@@ -476,14 +530,15 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
             onBlur={()=> setFocused(false)}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
+            onMouseUp={handleMouseUp}
+            onKeyUp={handleKeyUp}
             data-placeholder="Write code..."
             style={{ color: (block.properties.color as string)||undefined, background: (block.properties.background as string)||undefined }}
             className="outline-none min-h-[80px] p-3 rounded-xl bg-muted border font-mono text-sm whitespace-pre-wrap empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground"
           />
           {slashOpen && <SlashMenu query={slashQuery} onSelect={handleSlashSelect} onClose={handleCloseSlash} />}
         </div>
-        <BlockActions block={block} onChange={onChange} onDuplicate={onDuplicate} onDelete={onDelete} onMove={onMove} onColor={()=> setColorOpen(!colorOpen)} onComment={()=> setCommentOpen(true)} currentType={block.type} onTurnInto={handleSlashSelect} commentCount={commentCount} />
-        {colorOpen && <ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} />}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -491,13 +546,11 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
 
   if (isBookmark) {
     return (
-      <div className={cn("group relative flex gap-2 rounded-xl px-1 py-1 hover:bg-accent/30", dragId===block.id && "opacity-50")}
+      <div className={cn("group relative rounded-xl px-1 py-1 hover:bg-accent/30", dragId===block.id && "opacity-50")}
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
-        <div className="flex items-center gap-0.5 pt-1 opacity-0 group-hover:opacity-100 shrink-0">
-          <button className="p-1 rounded-lg hover:bg-accent cursor-grab"><GripVertical size={14}/></button>
-        </div>
-        <div className="flex-1 min-w-0">
+        {renderDragMenu()}
+        <div className="w-full min-w-0">
           {block.content ? (
             <a href={block.content} target="_blank" rel="noreferrer" className="flex gap-3 p-3 rounded-xl border bg-card hover:bg-accent">
               <div className="w-10 h-10 rounded-lg bg-muted grid place-items-center shrink-0"><Bookmark size={16}/></div>
@@ -510,8 +563,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           <input defaultValue={block.content} onBlur={e=> onChange({ content:e.target.value })} placeholder="Paste URL to bookmark..." className="w-full mt-2 text-sm border rounded-xl px-3 py-2 bg-background" />
           <input defaultValue={block.properties.title as string||''} onBlur={e=> onChange({ properties:{ ...block.properties, title:e.target.value}})} placeholder="Title (optional)" className="w-full mt-1 text-xs border rounded-xl px-3 py-1.5 bg-background" />
         </div>
-        <BlockActions block={block} onChange={onChange} onDuplicate={onDuplicate} onDelete={onDelete} onMove={onMove} onColor={()=> setColorOpen(!colorOpen)} onComment={()=> setCommentOpen(true)} currentType={block.type} onTurnInto={handleSlashSelect} commentCount={commentCount} />
-        {colorOpen && <ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} />}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -519,19 +571,16 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
 
   if (isEquation) {
     return (
-      <div className={cn("group relative flex gap-2 rounded-xl px-1 py-1 hover:bg-accent/30", dragId===block.id && "opacity-50")}
+      <div className={cn("group relative rounded-xl px-1 py-1 hover:bg-accent/30", dragId===block.id && "opacity-50")}
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
-        <div className="flex items-center gap-0.5 pt-1 opacity-0 group-hover:opacity-100 shrink-0">
-          <button className="p-1 rounded-lg hover:bg-accent cursor-grab"><GripVertical size={14}/></button>
-        </div>
-        <div className="flex-1 min-w-0">
+        {renderDragMenu()}
+        <div className="w-full min-w-0">
           <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">∑ Equation <span className="ml-auto">LaTeX</span></div>
-          <div ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} onKeyDown={handleKeyDown} data-placeholder="E = mc^2" className="min-h-[40px] p-3 rounded-xl border bg-muted font-mono text-center text-lg empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground outline-none" />
+          <div ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} onKeyDown={handleKeyDown} onMouseUp={handleMouseUp} data-placeholder="E = mc^2" className="min-h-[40px] p-3 rounded-xl border bg-muted font-mono text-center text-lg empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground outline-none" />
           <div className="text-xs text-muted-foreground mt-1 text-center">Rendered: <span className="font-mono">{contentRef.current?.innerText||block.content}</span></div>
         </div>
-        <BlockActions block={block} onChange={onChange} onDuplicate={onDuplicate} onDelete={onDelete} onMove={onMove} onColor={()=> setColorOpen(!colorOpen)} onComment={()=> setCommentOpen(true)} currentType={block.type} onTurnInto={handleSlashSelect} commentCount={commentCount} />
-        {colorOpen && <ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} />}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -542,9 +591,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
       <div className={cn("group relative rounded-xl px-1 py-2 hover:bg-accent/30", dragId===block.id && "opacity-50")}
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
-        <div className="absolute left-1 top-2 z-10 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button className="p-1 rounded-lg bg-card border shadow-sm hover:bg-accent cursor-grab"><GripVertical size={14}/></button>
-        </div>
+        {renderDragMenu()}
         <div className="w-full">
           <div className="p-3 rounded-xl border bg-violet-500/10 flex items-center gap-3">
             <span className="w-8 h-8 rounded-lg bg-card border grid place-items-center text-sm">{block.type==='page_embed' ? '📄' : block.type==='database_embed' ? '▦' : '@'}</span>
@@ -556,49 +603,29 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
               </select>
             </div>
           </div>
-            <div ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} data-placeholder="Optional note..." className="mt-2 text-xs outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground" />
+            <div ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} onMouseUp={handleMouseUp} data-placeholder="Optional note..." className="mt-2 text-xs outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground" />
             {block.type==='database_embed' && block.content && (()=> { const db:any = databases.find((d:any)=> d.id===block.content); return db ? <div className="mt-3 border rounded-xl overflow-hidden bg-card shadow-sm"><div className="p-2.5 bg-muted/40 border-b text-xs font-medium flex items-center justify-between"><span className="flex items-center gap-2">▦ {db.name} — inline</span><span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500 text-white">LIVE</span></div><div className="max-h-[480px] overflow-auto"><DatabaseViews database={db} compact /></div></div> : null })()}
             {block.type==='page_embed' && block.content && (()=> { const pg:any = pages.find((p:any)=> p.id===block.content); return pg ? <div className="mt-3 p-3 rounded-xl border bg-card"><div className="text-sm font-medium">{pg.icon} {pg.title}</div><div className="text-xs text-muted-foreground line-clamp-2">{pg.description||'Page preview'}</div><button onClick={()=> useAppStore.getState().setSelectedPage(pg.id)} className="mt-2 text-xs text-violet-600 hover:underline">Open →</button></div> : null })()}
           </div>
-        <button
-          onClick={()=> setActionsMenuOpen(!actionsMenuOpen)}
-          className={cn("absolute right-1 top-1 z-10 p-1.5 rounded-lg bg-card border shadow-sm transition-all hover:bg-accent", actionsMenuOpen ? "opacity-100 bg-accent" : "opacity-0 group-hover:opacity-100")}
-          title="Block options"
-        >
-          <MoreHorizontal size={14}/>
-        </button>
-        {actionsMenuOpen && (
-          <div className="absolute right-1 top-9 z-20 bg-popover border rounded-2xl shadow-xl p-2">
-            <div className="px-2 pb-1 text-[10px] font-semibold tracking-widest text-muted-foreground uppercase flex items-center justify-between">Options <button onClick={()=> setActionsMenuOpen(false)} className="p-0.5 hover:bg-accent rounded">✕</button></div>
-            <BlockActions block={block} onChange={onChange} onDuplicate={onDuplicate} onDelete={onDelete} onMove={onMove} onColor={()=> { setActionsMenuOpen(false); setColorOpen(true)}} onComment={()=> { setActionsMenuOpen(false); setCommentOpen(true)}} currentType={block.type} onTurnInto={handleSlashSelect} commentCount={commentCount} />
-          </div>
-        )}
         {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
   }
 
-  // Default text-like blocks: paragraph, heading1-3, bulleted, numbered, quote, callout, toggle
+  // Default text-like blocks: paragraph, heading1-3, bulleted, numbered, quote, callout, toggle — FULL WIDTH
   return (
     <div
-      className={cn("group relative flex gap-2 rounded-xl px-1 py-1 hover:bg-accent/30", focused && "bg-accent/20", dragId===block.id && "opacity-50")}
+      className={cn("group relative rounded-xl px-1 py-1 hover:bg-accent/30", focused && "bg-accent/20", dragId===block.id && "opacity-50")}
       draggable
       onDragStart={()=> setDragId(block.id)}
       onDragEnd={()=> setDragId(null)}
       onDragOver={e=> e.preventDefault()}
       onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
     >
-      <div className="flex items-center gap-0.5 pt-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-        <button className="p-1 rounded-lg hover:bg-accent cursor-grab" title="Drag to reorder"><GripVertical size={14}/></button>
-        <div className="flex flex-col gap-0.5">
-          <button onClick={()=> onMove('up')} className="p-1 rounded hover:bg-accent"><ArrowUp size={12}/></button>
-          <button onClick={()=> onMove('down')} className="p-1 rounded hover:bg-accent"><ArrowDown size={12}/></button>
-        </div>
-      </div>
+      {renderDragMenu()}
 
-      <div className="flex-1 min-w-0 relative">
-        {/* Callout wrapper */}
+      <div className="w-full min-w-0 relative">
         {isCallout && <div className="absolute inset-0 rounded-xl bg-amber-500/10 border border-amber-500/20 pointer-events-none" />}
         {isQuote && <div className="absolute left-0 top-0 bottom-0 w-1 bg-violet-500 rounded-full" />}
         {isToggle && (
@@ -615,6 +642,9 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           onBlur={()=> {setFocused(false); setTimeout(()=> setShowToolbar(false), 200)}}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
+          onMouseUp={handleMouseUp}
+          onKeyUp={handleKeyUp}
+          onClick={handleClickContent}
           data-placeholder={placeholderFor(block.type)}
           style={{ color: (block.properties.color as string)||undefined, background: isCallout ? undefined : (block.properties.background as string)||undefined, fontSize: (block.properties.fontSize as number) ? `${block.properties.fontSize}px` : undefined, fontFamily: (block.properties.fontFamily as string)==='mono' ? 'JetBrains Mono, monospace' : (block.properties.fontFamily as string)==='serif' ? 'Georgia, serif' : (block.properties.fontFamily as string)==='caveat' ? "'Caveat', cursive" : undefined, fontWeight: (block.properties.fontWeight as string)||undefined, fontStyle: (block.properties.italic as boolean) ? 'italic' : undefined }}
           className={cn(
@@ -629,9 +659,8 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
             block.type==='numbered_list' && "pl-6 list-decimal",
           )}
         />
-        {/* For lists, show marker via css before */}
         {block.type==='bulleted_list' && <span className="absolute left-2 top-2 text-muted-foreground pointer-events-none">•</span>}
-        {block.type==='numbered_list' && <span className="absolute left-0 top-1.5 text-xs text-muted-foreground pointer-events-none">{/* number handled via css */}</span>}
+        {block.type==='numbered_list' && <span className="absolute left-0 top-1.5 text-xs text-muted-foreground pointer-events-none"></span>}
 
         {isToggle && (block.properties.open as boolean) && (
           <div className="ml-6 mt-2 pl-3 border-l">
@@ -646,29 +675,29 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           </div>
         )}
 
-        {focused && showToolbar && (
+        {hasSelection && focused && renderSelectionBubble()}
+        {!hasSelection && focused && showToolbar && (
           <FloatingToolbar onFormat={(cmd)=> {document.execCommand(cmd); handleInput()}} />
         )}
 
         {slashOpen && <SlashMenu query={slashQuery} onSelect={handleSlashSelect} onClose={handleCloseSlash} />}
       </div>
 
-      <BlockActions block={block} onChange={onChange} onDuplicate={onDuplicate} onDelete={onDelete} onMove={onMove} onColor={()=> setColorOpen(!colorOpen)} onComment={()=> setCommentOpen(true)} currentType={block.type} onTurnInto={handleSlashSelect} commentCount={commentCount} />
-      {colorOpen && <ColorPicker colors={colors} current={block.properties as any} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} />}
+      {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties as any} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
       <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
     </div>
   )
 }
 
-function BlockActions({ block, onChange, onDuplicate, onDelete, onMove, onColor, onComment, currentType, onTurnInto, commentCount }: { block?: any, onChange?:(p:any)=>void, onDuplicate:()=>void, onDelete:()=>void, onMove:(d:'up'|'down')=>void, onColor:()=>void, onComment:()=>void, currentType?:string, onTurnInto?:(t:string)=>void, commentCount?:number }) {
+function BlockActions({ block, onChange, onDuplicate, onDelete, onMove, onColor, onComment, currentType, onTurnInto, commentCount, forceShow }: { block?: any, onChange?:(p:any)=>void, onDuplicate:()=>void, onDelete:()=>void, onMove:(d:'up'|'down')=>void, onColor:()=>void, onComment:()=>void, currentType?:string, onTurnInto?:(t:string)=>void, commentCount?:number, forceShow?:boolean }) {
   const [turnOpen, setTurnOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [fontOpen, setFontOpen] = useState(false)
   return (
-    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 pt-1 shrink-0 relative">
+    <div className={cn("flex items-center gap-1 pt-1 shrink-0 relative flex-wrap", !forceShow && "opacity-0 group-hover:opacity-100")}>
       <div className="relative">
         <button onClick={()=> setEmojiOpen(!emojiOpen)} className="p-1.5 rounded-lg hover:bg-accent" title="Emoji">😊</button>
-        {emojiOpen && <div className="absolute right-0 top-full mt-1 z-30"><EmojiPicker onSelect={(e:string)=> { if (onChange && block) onChange({ content: (block.content||'') + ' ' + e }); setEmojiOpen(false) }} onClose={()=> setEmojiOpen(false)} /></div>}
+        {emojiOpen && <div className="absolute left-0 top-full mt-1 z-30"><EmojiPicker onSelect={(e:string)=> { if (onChange && block) onChange({ content: (block.content||'') + ' ' + e }); setEmojiOpen(false) }} onClose={()=> setEmojiOpen(false)} /></div>}
       </div>
       <div className="relative">
         <button onClick={()=> setFontOpen(!fontOpen)} className="p-1.5 rounded-lg hover:bg-accent" title="Font">Aa</button>
@@ -678,7 +707,7 @@ function BlockActions({ block, onChange, onDuplicate, onDelete, onMove, onColor,
         <div className="relative">
           <button onClick={()=> setTurnOpen(!turnOpen)} className="p-1.5 rounded-lg hover:bg-accent text-xs" title="Turn into">↻</button>
           {turnOpen && (
-            <div className="absolute right-0 top-full mt-1 w-[200px] bg-popover border rounded-xl shadow-xl p-1 z-30 max-h-[240px] overflow-auto">
+            <div className="absolute left-0 top-full mt-1 w-[200px] bg-popover border rounded-xl shadow-xl p-1 z-30 max-h-[240px] overflow-auto">
               <div className="px-2 py-1 text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">Turn into</div>
               {BlockRegistry.all().slice(0,20).map(b=> (
                 <button key={b.type} onClick={()=> { onTurnInto(b.type); setTurnOpen(false)}} className={`w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center gap-2 ${currentType===b.type ? 'bg-accent font-medium' : 'hover:bg-accent'}`}>
@@ -867,13 +896,11 @@ function ImageUpload({ onUpload, onUrl }: { onUpload:(url:string)=>void, onUrl:(
 }
 
 function TableBlock({ content, onChange }: { content:string, onChange:(html:string)=>void }) {
-  // Enhanced table with typed columns, timer, cycle, progress
   const parseContent = (): { columns: any[], rows: any[] } => {
     try {
       const parsed = content ? JSON.parse(content) : null
       if (parsed && parsed.columns && parsed.rows) return parsed
       if (Array.isArray(parsed)) {
-        // migrate old string[][] to new format
         const header = parsed[0] || ['Task','Status','Progress']
         const columns = header.map((h:string,i:number)=> ({ id: 'c'+i, name: h || 'Col '+(i+1), type: i===1 ? 'select' : i===2 ? 'progress' : 'text', options: i===1 ? ['Todo','Doing','Done'] : undefined }))
         const rows = parsed.slice(1).map((r:any[], idx:number)=> ({ id: 'r'+idx, cells: Object.fromEntries(columns.map((c:any, ci:number)=> [c.id, r[ci]||''])) }))
@@ -897,7 +924,6 @@ function TableBlock({ content, onChange }: { content:string, onChange:(html:stri
   const [tick, setTick] = useState(0)
   const [showTableMenu, setShowTableMenu] = useState(false)
 
-  // Cycle helpers - customizable frequency & habit tracking
   const getCycleTarget = (freq: string): number => {
     switch(freq) {
       case 'once': return 1
@@ -951,16 +977,13 @@ function TableBlock({ content, onChange }: { content:string, onChange:(html:stri
     if (v > 0) return '#ef4444'
     return '#e5e7eb'
   }
-  // timer tick
   useEffect(()=> {
     const hasRunning = data.rows.some((r:any)=> Object.values(r.cells).some((v:any)=> v && typeof v==='object' && v.running))
     if (!hasRunning) return
     const id = setInterval(()=> setTick(t=> t+1), 1000)
     return ()=> clearInterval(id)
   }, [data])
-  // persist
   useEffect(()=> { onChange(JSON.stringify(data)) }, [data])
-  // keep in sync if content changes externally (e.g., undo) - not needed for now
   const updateCell = (rowId:string, colId:string, val:any)=> {
     setData(d=> ({ ...d, rows: d.rows.map((r:any)=> r.id===rowId ? { ...r, cells:{ ...r.cells, [colId]: val } } : r) }))
   }
@@ -986,7 +1009,6 @@ function TableBlock({ content, onChange }: { content:string, onChange:(html:stri
     setData(d=> ({ ...d, rows: [...d.rows, { ...row, id: 'r'+Date.now(), cells:{ ...row.cells } }] }))
   }
 
-  // helper to format timer
   const formatTimer = (cell:any) => {
     if (!cell || typeof cell !== 'object') return '0:00'
     const elapsed = cell.running && cell.start ? cell.elapsed + Math.floor((Date.now() - cell.start)/1000) : cell.elapsed || 0
@@ -1028,7 +1050,6 @@ function TableBlock({ content, onChange }: { content:string, onChange:(html:stri
 
   return (
     <div className="rounded-xl border bg-card w-full max-w-full relative group/table overflow-visible">
-      {/* Side options trigger - click to show full table otherwise, table uses whole block */}
       <button
         onClick={()=> setShowTableMenu(!showTableMenu)}
         className={`absolute right-3 top-3 z-10 p-1.5 rounded-lg border shadow-sm flex items-center gap-1 text-xs font-medium transition-all ${showTableMenu ? 'bg-accent border-violet-500/20 opacity-100' : 'bg-card/90 backdrop-blur opacity-0 group-hover/table:opacity-100 hover:bg-accent'}`}
@@ -1206,7 +1227,6 @@ function TableBlock({ content, onChange }: { content:string, onChange:(html:stri
           </tbody>
         </table>
       </div>
-      {/* Minimal footer - full block for table, options via side panel */}
       <div className="p-2 border-t bg-muted/20 flex items-center gap-2 text-xs">
         <span className="px-2 py-1 rounded-full bg-violet-500/10 border text-[11px]">{data.rows.length} rows • {data.columns.length} cols</span>
         <span className="hidden sm:inline text-muted-foreground">• Click <span className="font-medium text-foreground">Options ↗</span> for columns & rows</span>
