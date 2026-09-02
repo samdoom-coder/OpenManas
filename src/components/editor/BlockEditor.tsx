@@ -338,6 +338,17 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
     </>
   )
 
+  const renderCommentHover = () => (
+    <button
+      onClick={(e)=>{ e.stopPropagation(); setCommentOpen(true) }}
+      className="absolute right-1 top-1.5 z-10 p-1 rounded-md bg-card border shadow-sm hover:bg-accent opacity-0 group-hover:opacity-100 transition-opacity"
+      title={commentCount ? `${commentCount} comment${commentCount>1?'s':''} — click to open` : "Add comment"}
+    >
+      <MessageSquare size={12} className={commentCount ? "text-violet-600" : "text-muted-foreground"} />
+      {commentCount ? <span className="absolute -top-1 -right-1 min-w-[14px] h-[12px] px-0.5 bg-violet-500 text-white text-[8px] font-bold rounded-full grid place-items-center leading-none">{commentCount>9?'9+':commentCount}</span> : null}
+    </button>
+  )
+
   const renderSelectionBubble = () => {
     if (!hasSelection || !focused) return null
     return (
@@ -363,6 +374,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
         {renderDragMenu()}
+        {renderCommentHover()}
         <div className="w-full py-2"><hr className="border-t" /></div>
         {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
@@ -377,6 +389,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
         {renderDragMenu()}
+        {renderCommentHover()}
         <div className="w-full min-w-0 relative flex items-center gap-2 py-1">
           <input type="checkbox" checked={!!block.properties.checked} onChange={e=> onChange({ properties:{ ...block.properties, checked:e.target.checked }})} className="rounded w-4 h-4 shrink-0 ml-1 sm:ml-7" />
           <div
@@ -412,6 +425,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
         {renderDragMenu()}
+        {renderCommentHover()}
         <div className="w-full min-w-0 space-y-2">
           {block.content ? (
             <div className="rounded-xl overflow-hidden border bg-muted">
@@ -439,6 +453,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
         {renderDragMenu()}
+        {renderCommentHover()}
         <div className="w-full min-w-0">
           {block.content ? (
             <div className="flex items-center gap-3 p-3 rounded-xl border bg-card">
@@ -466,6 +481,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
         {renderDragMenu()}
+        {renderCommentHover()}
         <div className="w-full min-w-0 space-y-2">
           {block.content ? (
             <div className="rounded-xl overflow-hidden border bg-black aspect-video grid place-items-center">
@@ -491,6 +507,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
         {renderDragMenu()}
+        {renderCommentHover()}
         <div className="w-full">
           <TableBlock content={block.content} onChange={(html)=> onChange({ content: html })} />
         </div>
@@ -513,6 +530,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
         {renderDragMenu()}
+        {renderCommentHover()}
         <div className="w-full min-w-0 relative">
           <div className="flex items-center gap-2 mb-1">
             <Code size={14} className="text-muted-foreground" />
@@ -550,6 +568,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
         {renderDragMenu()}
+        {renderCommentHover()}
         <div className="w-full min-w-0">
           {block.content ? (
             <a href={block.content} target="_blank" rel="noreferrer" className="flex gap-3 p-3 rounded-xl border bg-card hover:bg-accent">
@@ -575,6 +594,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
         {renderDragMenu()}
+        {renderCommentHover()}
         <div className="w-full min-w-0">
           <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">∑ Equation <span className="ml-auto">LaTeX</span></div>
           <div ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} onKeyDown={handleKeyDown} onMouseUp={handleMouseUp} data-placeholder="E = mc^2" className="min-h-[40px] p-3 rounded-xl border bg-muted font-mono text-center text-lg empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground outline-none" />
@@ -592,6 +612,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
       >
         {renderDragMenu()}
+        {renderCommentHover()}
         <div className="w-full">
           <div className="p-3 rounded-xl border bg-violet-500/10 flex items-center gap-3">
             <span className="w-8 h-8 rounded-lg bg-card border grid place-items-center text-sm">{block.type==='page_embed' ? '📄' : block.type==='database_embed' ? '▦' : '@'}</span>
@@ -624,6 +645,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
       onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
     >
       {renderDragMenu()}
+        {renderCommentHover()}
 
       <div className="w-full min-w-0 relative">
         {isCallout && <div className="absolute inset-0 rounded-xl bg-amber-500/10 border border-amber-500/20 pointer-events-none" />}
