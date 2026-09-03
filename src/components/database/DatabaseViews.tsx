@@ -5,9 +5,10 @@ import { evaluateFilter, sortRecords, groupRecords } from '@/lib/databaseEngine'
 import { propertyDefFor } from '@/lib/propertyDefs'
 import { PropertyCell } from '@/components/database/PropertyCell'
 import { ColumnHeaderMenu, AddPropertyDialog, EditPropertyDialog } from '@/components/database/PropertyMenu'
+import { RecordDetailModal } from '@/components/database/RecordDetail'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, Filter, ArrowUpDown, ArrowUp, ArrowDown, Eye, EyeOff, MoreHorizontal, Calendar, LayoutGrid, List, Table as TableIcon, Kanban, Clock, GanttChart, Settings, SlidersHorizontal, X, ChevronDown, Copy, Trash2, GripVertical } from 'lucide-react'
+import { Plus, Filter, ArrowUpDown, ArrowUp, ArrowDown, ArrowUpRight, Eye, EyeOff, MoreHorizontal, Calendar, LayoutGrid, List, Table as TableIcon, Kanban, Clock, GanttChart, Settings, SlidersHorizontal, X, ChevronDown, Copy, Trash2, GripVertical } from 'lucide-react'
 import { Modal } from '@/components/ui/modal'
 import { cn } from '@/lib/utils'
 
@@ -24,6 +25,7 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
   const [showSort, setShowSort] = useState(false)
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set())
   const [showControls, setShowControls] = useState(false)
+  const [openRecordId, setOpenRecordId] = useState<string | null>(null)
 
   const filtered = useMemo(()=> {
     let recs = dbRecords
@@ -168,11 +170,11 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
         </div>
       )}
 
-      {viewType==='table' && <TableView database={database} records={filtered} hiddenCols={hiddenCols} onHide={toggleHide} onUpdate={updateRecord} onDelete={deleteRecord} onSort={(pid)=> setSort({ propertyId: pid, direction: sort?.direction==='asc' ? 'desc' : 'asc'})} />}
-      {viewType==='board' && <BoardView database={database} records={filtered} onUpdate={updateRecord} />}
-      {viewType==='gallery' && <GalleryView database={database} records={filtered} />}
+      {viewType==='table' && <TableView database={database} records={filtered} hiddenCols={hiddenCols} onHide={toggleHide} onOpenRecord={setOpenRecordId} onUpdate={updateRecord} onDelete={deleteRecord} onSort={(pid)=> setSort({ propertyId: pid, direction: sort?.direction==='asc' ? 'desc' : 'asc'})} />}
+      {viewType==='board' && <BoardView database={database} records={filtered} onUpdate={updateRecord} onOpenRecord={setOpenRecordId} />}
+      {viewType==='gallery' && <GalleryView database={database} records={filtered} onOpenRecord={setOpenRecordId} />}
       {viewType==='calendar' && <CalendarView database={database} records={filtered} />}
-      {viewType==='list' && <ListView database={database} records={filtered} />}
+      {viewType==='list' && <ListView database={database} records={filtered} onOpenRecord={setOpenRecordId} />}
       {viewType==='timeline' && <TimelineView database={database} records={filtered} />}
 
       {viewType!=='table' && (
@@ -186,6 +188,7 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
 
       {showFilter && <FilterModal database={database} initial={filterGroup} onApply={g=> { setFilterGroup(g); setShowFilter(false)}} onClose={()=> setShowFilter(false)} />}
       {showSort && <SortModal database={database} current={sort} onApply={s=> { setSort(s); setShowSort(false)}} onClose={()=> setShowSort(false)} />}
+      {openRecordId && <RecordDetailModal databaseId={database.id} recordId={openRecordId} onClose={()=> setOpenRecordId(null)} />}
     </div>
   )
 }
@@ -249,7 +252,7 @@ function SortModal({ database, current, onApply, onClose }: { database: Database
   )
 }
 
-function TableView({ database, records, hiddenCols, onHide, onUpdate, onDelete, onSort }: { database: Database, records: DatabaseRecord[], hiddenCols:Set<string>, onHide:(propId:string)=>void, onUpdate:(id:string, props:any)=>void, onDelete:(id:string)=>void, onSort:(pid:string)=>void }) {
+function TableView({ database, records, hiddenCols, onHide, onOpenRecord, onUpdate, onDelete, onSort }: { database: Database, records: DatabaseRecord[], hiddenCols:Set<string>, onHide:(propId:string)=>void, onOpenRecord:(recordId:string)=>void, onUpdate:(id:string, props:any)=>void, onDelete:(id:string)=>void, onSort:(pid:string)=>void }) {
   const { createRecord, updateProperty, reorderProperty } = useAppStore()
   const [editing, setEditing] = useState<string | null>(null) // `${recordId}:${propId}`
   const [menuProp, setMenuProp] = useState<string | null>(null)
@@ -446,6 +449,12 @@ function TableView({ database, records, hiddenCols, onHide, onUpdate, onDelete, 
                       <span className="fixed inset-0 z-30" onClick={() => setRowMenu(null)} />
                       <span className="absolute right-0 top-full z-40 mt-1 block w-[180px] overflow-hidden rounded-xl border bg-popover p-1 shadow-xl">
                         <button
+                          onClick={() => { onOpenRecord(r.id); setRowMenu(null) }}
+                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-accent"
+                        >
+                          <ArrowUpRight size={13} className="text-muted-foreground" /> Open as page
+                        </button>
+                        <button
                           onClick={() => { createRecord(database.id, { ...r.properties }); setRowMenu(null) }}
                           className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-accent"
                         >
@@ -485,7 +494,7 @@ function TableView({ database, records, hiddenCols, onHide, onUpdate, onDelete, 
   )
 }
 
-function BoardView({ database, records, onUpdate }: { database: Database, records: DatabaseRecord[], onUpdate:(id:string, props:any)=>void }) {
+function BoardView({ database, records, onUpdate, onOpenRecord }: { database: Database, records: DatabaseRecord[], onUpdate:(id:string, props:any)=>void, onOpenRecord:(recordId:string)=>void }) {
   const groupBy = database.views.find(v=>v.type==='board')?.groupBy || database.properties.find(p=> p.type==='status' || p.type==='select')?.id
   const groups = groupRecords(records, groupBy)
   return (
@@ -498,9 +507,9 @@ function BoardView({ database, records, onUpdate }: { database: Database, record
           </div>
           <div className="space-y-2">
             {items.map(r=> (
-              <div key={r.id} draggable onDragEnd={e=> {
+              <div key={r.id} draggable onClick={()=> onOpenRecord(r.id)} onDragEnd={e=> {
                 // naive drop handling via prompt
-              }} className="rounded-xl border bg-background p-3 shadow-sm hover:shadow-md transition-shadow cursor-grab">
+              }} className="rounded-xl border bg-background p-3 shadow-sm hover:shadow-md transition-shadow cursor-pointer">
                 <div className="font-medium text-sm line-clamp-2">{String(r.properties[database.properties[0].id]||'Untitled')}</div>
                 <div className="flex flex-wrap gap-1 mt-2">
                   {database.properties.slice(1,3).map(p=> (
@@ -521,11 +530,11 @@ function BoardView({ database, records, onUpdate }: { database: Database, record
   )
 }
 
-function GalleryView({ database, records }: { database: Database, records: DatabaseRecord[] }) {
+function GalleryView({ database, records, onOpenRecord }: { database: Database, records: DatabaseRecord[], onOpenRecord:(recordId:string)=>void }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
       {records.map(r=> (
-        <div key={r.id} className="rounded-2xl border bg-card overflow-hidden hover:shadow-md transition-shadow">
+        <div key={r.id} onClick={()=> onOpenRecord(r.id)} className="rounded-2xl border bg-card overflow-hidden hover:shadow-md transition-shadow cursor-pointer">
           <div className="h-32 bg-gradient-to-br from-violet-500/20 to-indigo-500/20 grid place-items-center text-2xl">▦</div>
           <div className="p-3">
             <div className="font-medium text-sm">{String(r.properties[database.properties[0].id]||'Untitled')}</div>
@@ -567,11 +576,11 @@ function CalendarView({ database, records }: { database: Database, records: Data
   )
 }
 
-function ListView({ database, records }: { database: Database, records: DatabaseRecord[] }) {
+function ListView({ database, records, onOpenRecord }: { database: Database, records: DatabaseRecord[], onOpenRecord:(recordId:string)=>void }) {
   return (
     <div className="border rounded-2xl bg-card divide-y">
       {records.map(r=> (
-        <div key={r.id} className="flex items-center gap-3 px-4 py-3 hover:bg-accent/40">
+        <div key={r.id} onClick={()=> onOpenRecord(r.id)} className="flex items-center gap-3 px-4 py-3 hover:bg-accent/40 cursor-pointer">
           <span className="w-2 h-2 rounded-full bg-violet-500"/>
           <span className="font-medium text-sm flex-1 truncate">{String(r.properties[database.properties[0].id]||'Untitled')}</span>
           <span className="text-xs text-muted-foreground hidden sm:inline">{Object.values(r.properties).slice(1,3).join(' • ')}</span>

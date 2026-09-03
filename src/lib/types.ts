@@ -37,6 +37,7 @@ export interface Page {
   iconType?: PageIconType // default: 'emoji' for backwards compat when `icon` is set
   customIcon?: string // dataURL or http(s) URL when iconType==='custom'
   cover?: string
+  coverPosition?: number // vertical focal point 0-100 (%), default 50; image covers only
   description?: string
   isFavorite: boolean
   isArchived: boolean

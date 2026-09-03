@@ -50,7 +50,8 @@ const pageSchema = z.object({
   icon: z.string().max(100).optional(),
   iconType: z.enum(['emoji', 'lucide', 'custom', 'none']).optional(),
   customIcon: z.string().max(3000000).optional(),
-  cover: z.string().optional(),
+  cover: z.string().max(3000000).optional(),
+  coverPosition: z.number().min(0).max(100).optional(),
   description: z.string().max(2000).optional(),
 })
 
@@ -171,7 +172,7 @@ app.get('/api/databases/:id/records', authStub, (req,res)=> {
   res.json(recs)
 })
 app.post('/api/databases/:id/records', authStub, (req:any,res)=> {
-  const rec = { id: uuid(), databaseId: req.params.id, properties: req.body.properties||{}, position: db.records.filter(r=> r.databaseId===req.params.id).length, createdBy: (req as any).userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  const rec = { id: uuid(), databaseId: req.params.id, properties: req.body.properties||{}, pageId: req.body.pageId, position: db.records.filter(r=> r.databaseId===req.params.id).length, createdBy: (req as any).userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
   db.records.push(rec); saveDB()
   res.status(201).json(rec)
 })
@@ -179,6 +180,7 @@ app.patch('/api/records/:id', authStub, (req,res)=> {
   const r = db.records.find(x=> x.id===req.params.id)
   if (!r) return res.status(404).json({ error:'Not found' })
   r.properties = { ...r.properties, ...(req.body.properties||req.body) }
+  if (req.body.pageId !== undefined) r.pageId = req.body.pageId
   r.updatedAt = new Date().toISOString()
   saveDB()
   res.json(r)

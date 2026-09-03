@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { Page, Block, Database, DatabaseProperty, DatabaseRecord, PropertyType, Workspace, User, Activity, Notification, Comment, FileAsset } from '@/lib/types'
 import { generateSeed } from '@/data/seed'
 import { uid } from '@/lib/utils'
+import { getRecordTitle } from '@/lib/propertyDefs'
 
 interface AppState {
   user: User
@@ -45,6 +46,8 @@ interface AppState {
   createRecord: (dbId: string, props: Record<string, unknown>) => DatabaseRecord
   updateRecord: (id: string, props: Record<string, unknown>) => void
   deleteRecord: (id: string) => void
+  /** Get (creating if needed) the full page backing a record. Null if record missing. */
+  ensureRecordPage: (recordId: string) => Page | null
   // database schema (Notion-like columns)
   addProperty: (dbId: string, prop: { name: string; type: PropertyType; options?: string[] }) => DatabaseProperty
   updateProperty: (dbId: string, propId: string, patch: Partial<DatabaseProperty>) => void
@@ -225,12 +228,57 @@ export const useAppStore = create<AppState>((set, get) => ({
     return r
   },
   updateRecord: (id, props) => {
+    const rec = get().records.find(r=> r.id===id)
     set(s=> ({ records: s.records.map(r=> r.id===id ? { ...r, properties: { ...r.properties, ...props }, updatedAt: new Date().toISOString() }:r)}))
+    // keep linked record-page title in sync with the title property
+    if (rec?.pageId) {
+      const db = get().databases.find(d=> d.id===rec.databaseId)
+      const titleProp = db?.properties[0]?.id
+      if (titleProp && titleProp in props) {
+        const t = getRecordTitle(db!, { properties: { ...rec.properties, ...props } })
+        set(s=> ({ pages: s.pages.map(p=> p.id===rec.pageId ? { ...p, title: t, updatedAt: new Date().toISOString() } : p)}))
+      }
+    }
     persist(get())
   },
   deleteRecord: (id) => {
-    set(s=> ({ records: s.records.filter(r=>r.id!==id)}))
+    const rec = get().records.find(r=> r.id===id)
+    set(s=> ({
+      records: s.records.filter(r=>r.id!==id),
+      // clean up the linked record-page (blocks, page, record comments) so no orphans remain
+      pages: rec?.pageId ? s.pages.filter(p=> p.id!==rec.pageId) : s.pages,
+      blocks: rec?.pageId ? s.blocks.filter(b=> b.pageId!==rec.pageId) : s.blocks,
+      comments: s.comments.filter(c=> c.recordId!==id),
+    }))
     persist(get())
+  },
+  ensureRecordPage: (recordId) => {
+    const rec = get().records.find(r=> r.id===recordId)
+    if (!rec) return null
+    if (rec.pageId) {
+      const existing = get().pages.find(p=> p.id===rec.pageId)
+      if (existing) return existing
+    }
+    const db = get().databases.find(d=> d.id===rec.databaseId)
+    const now = new Date().toISOString()
+    const p: Page = {
+      id: uid(),
+      workspaceId: db?.workspaceId ?? get().workspace.id,
+      parentId: null,
+      title: db ? getRecordTitle(db, rec) : 'Untitled',
+      icon: '📄',
+      iconType: 'emoji',
+      isFavorite: false, isArchived: false, isTrashed: false, isShared: false,
+      createdBy: get().user.id, updatedBy: get().user.id, createdAt: now, updatedAt: now,
+    }
+    const firstBlock: Block = { id: uid(), pageId: p.id, parentId: null, type: 'paragraph', content: '', properties: {}, position: 0, createdAt: now, updatedAt: now }
+    set(s=> ({
+      pages: [...s.pages, p],
+      blocks: [...s.blocks, firstBlock],
+      records: s.records.map(r=> r.id===recordId ? { ...r, pageId: p.id } : r),
+    }))
+    persist(get())
+    return p
   },
 
   addProperty: (dbId, prop) => {

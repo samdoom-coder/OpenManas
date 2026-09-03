@@ -1,9 +1,11 @@
 import { useAppStore } from '@/stores/appStore'
 import { BlockEditor } from '@/components/editor/BlockEditor'
 import { Button } from '@/components/ui/button'
-import { Star, Share2, MoreHorizontal, MessageSquare, History, Copy, Trash2, Archive } from 'lucide-react'
+import { Star, Share2, MoreHorizontal, MessageSquare, History, Copy, Trash2, Archive, ImagePlus, MoveVertical, ArrowUp, ArrowDown } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { IconPicker } from '@/components/ui/iconPicker'
+import { CoverPicker } from '@/components/ui/coverPicker'
+import { resolveCover, clampCoverPosition, DEFAULT_COVER_POSITION } from '@/lib/coverData'
 import { PageIcon } from '@/components/ui/pageIcon'
 
 export function PageView({ pageId }: { pageId: string }) {
@@ -12,6 +14,7 @@ export function PageView({ pageId }: { pageId: string }) {
   const [editingTitle, setEditingTitle] = useState(false)
   const [showComments, setShowComments] = useState(false)
   const [iconPicker, setIconPicker] = useState(false)
+  const [coverAnchor, setCoverAnchor] = useState<'cover' | 'actions' | null>(null)
   const commentsRef = useRef<HTMLDivElement>(null)
   const iconBtnRef = useRef<HTMLDivElement>(null)
 
@@ -30,6 +33,22 @@ export function PageView({ pageId }: { pageId: string }) {
     }
   }, [iconPicker])
 
+  // close cover picker on outside click / Escape (triggers + popup carry data-cover-ui)
+  useEffect(() => {
+    if (!coverAnchor) return
+    const onDown = (e: MouseEvent) => {
+      if ((e.target as HTMLElement).closest('[data-cover-ui]')) return
+      setCoverAnchor(null)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setCoverAnchor(null)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [coverAnchor])
+
   if (!page) return <div className="p-8 text-center text-muted-foreground">Page not found or trashed.</div>
   if (page.isTrashed) return <TrashedView page={page} />
 
@@ -37,7 +56,7 @@ export function PageView({ pageId }: { pageId: string }) {
 
   return (
     <div className="max-w-[860px] mx-auto w-full">
-      {page.cover && <div className="h-[180px] rounded-b-2xl overflow-hidden bg-gradient-to-br from-violet-500 via-indigo-500 to-blue-500" style={page.cover.startsWith('http') ? { backgroundImage: `url(${page.cover})`, backgroundSize:'cover'} : {}} />}
+      <PageCover page={page} anchor={coverAnchor} setAnchor={setCoverAnchor} />
       <div className="px-6 md:px-8 py-6 space-y-6">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="px-2 py-1 rounded-full border bg-muted">Private</span>
@@ -96,6 +115,14 @@ export function PageView({ pageId }: { pageId: string }) {
             <PropertyPill label="Updated" value={new Date(page.updatedAt).toLocaleDateString()}/>
             <PropertyPill label="Owner" value={useAppStore.getState().user.name}/>
             <div className="ml-auto flex items-center gap-1">
+              <span className="relative" data-cover-ui>
+                <Button variant="ghost" size="sm" onClick={()=> setCoverAnchor(coverAnchor === 'actions' ? null : 'actions')}><ImagePlus size={14} className="mr-1"/> Cover</Button>
+                {coverAnchor === 'actions' && (
+                  <span className="absolute right-0 top-full z-30 mt-2">
+                    <CoverPicker value={page.cover} onSelect={(cover) => { updatePage(page.id, { cover } as never); setCoverAnchor(null) }} onClose={()=> setCoverAnchor(null)} />
+                  </span>
+                )}
+              </span>
               <Button variant="ghost" size="sm" onClick={()=> duplicatePage(page.id)}><Copy size={14} className="mr-1"/> Duplicate</Button>
               <Button variant="ghost" size="sm" onClick={()=> updatePage(page.id, { isArchived:true })}><Archive size={14} className="mr-1"/> Archive</Button>
               <Button variant="ghost" size="sm" onClick={()=> deletePage(page.id)} className="text-red-600"><Trash2 size={14} className="mr-1"/> Trash</Button>
@@ -127,6 +154,126 @@ export function PageView({ pageId }: { pageId: string }) {
 
 function PropertyPill({ label, value }: { label:string, value:string }) {
   return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-card text-xs"><span className="text-muted-foreground">{label}</span><span className="font-medium">{value}</span></span>
+}
+
+function PageCover({ page, anchor, setAnchor }: { page: { id: string; cover?: string; coverPosition?: number }; anchor: 'cover' | 'actions' | null; setAnchor: (a: 'cover' | 'actions' | null) => void }) {
+  const { updatePage } = useAppStore()
+  const [repositioning, setRepositioning] = useState(false)
+  const [draftPos, setDraftPos] = useState(DEFAULT_COVER_POSITION)
+  const dragRef = useRef<{ startY: number; startPos: number; height: number } | null>(null)
+  const frameRef = useRef<HTMLDivElement>(null)
+
+  const savedPos = clampCoverPosition(page.coverPosition ?? DEFAULT_COVER_POSITION)
+  const shownPos = repositioning ? draftPos : savedPos
+
+  if (!page.cover) return null
+  const cover = resolveCover(page.cover)
+  const isImage = cover.kind === 'image'
+
+  const startReposition = () => {
+    setDraftPos(savedPos)
+    setRepositioning(true)
+    setAnchor(null)
+  }
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (!repositioning || !frameRef.current) return
+    ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
+    dragRef.current = { startY: e.clientY, startPos: draftPos, height: frameRef.current.clientHeight || 180 }
+  }
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = dragRef.current
+    if (!repositioning || !d) return
+    setDraftPos(clampCoverPosition(d.startPos - ((e.clientY - d.startY) / d.height) * 100))
+  }
+  const endDrag = () => {
+    dragRef.current = null
+  }
+
+  return (
+    <div data-cover-ui className="group/cover relative h-[180px] overflow-visible">
+      <div
+        ref={frameRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        className={repositioning ? 'h-[180px] cursor-grab touch-none select-none active:cursor-grabbing' : 'h-[180px]'}
+      >
+        {isImage ? (
+          <img
+            src={cover.src}
+            alt=""
+            draggable={false}
+            className="h-[180px] w-full rounded-b-2xl bg-muted object-cover"
+            style={{ objectPosition: `50% ${shownPos}%` }}
+          />
+        ) : (
+          <div className={`h-[180px] rounded-b-2xl bg-gradient-to-br ${cover.preset.classes}`} />
+        )}
+      </div>
+
+      {repositioning ? (
+        <>
+          <div className="absolute left-3 top-3 flex items-center gap-1 rounded-lg border bg-card/90 px-2 py-1 text-xs shadow-sm backdrop-blur">
+            <button onClick={() => setDraftPos((p) => clampCoverPosition(p - 2))} className="rounded p-1 hover:bg-accent" title="Nudge up">
+              <ArrowUp size={13} />
+            </button>
+            <span className="min-w-[42px] text-center tabular-nums text-muted-foreground">{shownPos}%</span>
+            <button onClick={() => setDraftPos((p) => clampCoverPosition(p + 2))} className="rounded p-1 hover:bg-accent" title="Nudge down">
+              <ArrowDown size={13} />
+            </button>
+            <span className="hidden text-muted-foreground sm:inline">Drag image to reposition</span>
+          </div>
+          <div className="absolute right-3 top-3 flex items-center gap-1.5">
+            <button
+              onClick={() => setRepositioning(false)}
+              className="rounded-lg border bg-card/90 px-2.5 py-1.5 text-xs font-medium shadow-sm backdrop-blur hover:bg-accent"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                updatePage(page.id, { coverPosition: draftPos })
+                setRepositioning(false)
+              }}
+              className="rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground shadow-sm hover:opacity-90"
+            >
+              Save position
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="absolute right-3 top-3 flex items-center gap-1.5 opacity-0 transition-opacity group-hover/cover:opacity-100 focus-within:opacity-100">
+          {isImage && (
+            <button
+              onClick={startReposition}
+              className="flex items-center gap-1 rounded-lg border bg-card/90 px-2.5 py-1.5 text-xs font-medium shadow-sm backdrop-blur hover:bg-accent"
+            >
+              <MoveVertical size={13} /> Reposition
+            </button>
+          )}
+          <button
+            onClick={() => setAnchor(anchor === 'cover' ? null : 'cover')}
+            className="rounded-lg border bg-card/90 px-2.5 py-1.5 text-xs font-medium shadow-sm backdrop-blur hover:bg-accent"
+          >
+            Change cover
+          </button>
+          <button
+            onClick={() => updatePage(page.id, { cover: undefined } as never)}
+            className="rounded-lg border bg-card/90 px-2 py-1.5 text-xs shadow-sm backdrop-blur hover:bg-accent hover:text-red-600"
+            title="Remove cover"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {anchor === 'cover' && !repositioning && (
+        <div className="absolute right-3 top-12 z-30">
+          <CoverPicker value={page.cover} onSelect={(c) => { updatePage(page.id, { cover: c } as never); setAnchor(null) }} onClose={() => setAnchor(null)} />
+        </div>
+      )}
+    </div>
+  )
 }
 
 function findBacklinks(pageId:string, pages:any[], blocks:any[]) {

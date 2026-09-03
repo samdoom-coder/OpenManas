@@ -63,6 +63,21 @@ export function coercePropertyValue(prop: DatabaseProperty, raw: unknown): unkno
   }
 }
 
+/** Title of a record = value of the database's first property (Notion-style). */
+export function getRecordTitle(
+  database: { properties: DatabaseProperty[] },
+  record: { properties: Record<string, unknown> },
+): string {
+  const first = database.properties[0]
+  const v = first ? record.properties[first.id] : undefined
+  if (Array.isArray(v)) {
+    const s = v.map(String).join(', ').trim()
+    return s || 'Untitled'
+  }
+  const s = String(v ?? '').trim()
+  return s || 'Untitled'
+}
+
 export function displayPropertyValue(prop: DatabaseProperty, value: unknown, createdAt?: string, updatedAt?: string): string {
   if (prop.type === 'created_time') return createdAt ? new Date(createdAt).toLocaleString() : ''
   if (prop.type === 'updated_time') return updatedAt ? new Date(updatedAt).toLocaleString() : ''

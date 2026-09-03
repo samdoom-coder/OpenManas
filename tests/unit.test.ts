@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { BlockRegistry, detectMarkdownShortcut } from '../src/lib/blockRegistry'
 import { evaluateFilter, sortRecords } from '../src/lib/databaseEngine'
 import { can } from '../src/lib/permissions'
-import { coercePropertyValue, displayPropertyValue, isOptionType, isReadOnlyType, propertyDefFor } from '../src/lib/propertyDefs'
+import { coercePropertyValue, displayPropertyValue, isOptionType, isReadOnlyType, propertyDefFor, getRecordTitle } from '../src/lib/propertyDefs'
+import { isImageCover, resolveCover, COVER_PRESETS, clampCoverPosition } from '../src/lib/coverData'
 
 describe('BlockRegistry', ()=>{
   it('has slash commands', ()=> { expect(BlockRegistry.slashCommands().length).toBeGreaterThan(10) })
@@ -65,5 +66,36 @@ describe('Property types (Notion-like columns)', ()=>{
     expect(displayPropertyValue({ id:'p', name:'M', type:'multi_select' } as any, ['a','b'])).toBe('a, b')
     expect(displayPropertyValue({ id:'p', name:'C', type:'checkbox' } as any, true)).toBe('Yes')
     expect(displayPropertyValue({ id:'p', name:'T', type:'text' } as any, undefined)).toBe('')
+  })
+  it('derives record titles from the first property', ()=> {
+    const db = { properties: [{ id:'t', name:'Name', type:'text' }] } as any
+    expect(getRecordTitle(db, { properties:{ t:'Launch site' }})).toBe('Launch site')
+    expect(getRecordTitle(db, { properties:{ t:'  ' }})).toBe('Untitled')
+    expect(getRecordTitle(db, { properties:{}})).toBe('Untitled')
+    expect(getRecordTitle({ properties: [] } as any, { properties:{}})).toBe('Untitled')
+  })
+})
+
+describe('Page covers', ()=>{
+  it('has presets', ()=> { expect(COVER_PRESETS.length).toBeGreaterThan(5) })
+  it('detects image covers', ()=> {
+    expect(isImageCover('https://example.com/a.jpg')).toBe(true)
+    expect(isImageCover('data:image/png;base64,xx')).toBe(true)
+    expect(isImageCover('gradient:violet')).toBe(false)
+    expect(isImageCover(undefined)).toBe(false)
+  })
+  it('resolves covers', ()=> {
+    expect(resolveCover('gradient:sunset').kind).toBe('gradient')
+    expect(resolveCover('gradient:sunset').preset.id).toBe('sunset')
+    expect(resolveCover('https://example.com/a.jpg').kind).toBe('image')
+    expect(resolveCover(undefined).preset.id).toBe('violet')
+    expect(resolveCover('gradient:nope').preset.id).toBe('violet')
+  })
+  it('clamps cover positions', ()=> {
+    expect(clampCoverPosition(50)).toBe(50)
+    expect(clampCoverPosition(-20)).toBe(0)
+    expect(clampCoverPosition(140)).toBe(100)
+    expect(clampCoverPosition('abc')).toBe(50)
+    expect(clampCoverPosition(33.6)).toBe(34)
   })
 })
