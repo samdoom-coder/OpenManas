@@ -11,6 +11,7 @@ import { storageService } from '@/lib/storageService'
 import { useToast } from '@/components/ui/toast'
 import { DatabaseViews } from '@/components/database/DatabaseViews'
 import { EmojiPicker } from '@/components/ui/emojiPicker'
+import { PageIconInline } from '@/components/ui/pageIcon'
 import { FontPicker } from '@/components/ui/fontPicker'
 
 export function BlockEditor({ pageId }: { pageId: string }) {
@@ -626,7 +627,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           </div>
             <div ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} onMouseUp={handleMouseUp} data-placeholder="Optional note..." className="mt-2 text-xs outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground" />
             {block.type==='database_embed' && block.content && (()=> { const db:any = databases.find((d:any)=> d.id===block.content); return db ? <div className="mt-3 border rounded-xl overflow-hidden bg-card shadow-sm"><div className="p-2.5 bg-muted/40 border-b text-xs font-medium flex items-center justify-between"><span className="flex items-center gap-2">▦ {db.name} — inline</span><span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500 text-white">LIVE</span></div><div className="max-h-[480px] overflow-auto"><DatabaseViews database={db} compact /></div></div> : null })()}
-            {block.type==='page_embed' && block.content && (()=> { const pg:any = pages.find((p:any)=> p.id===block.content); return pg ? <div className="mt-3 p-3 rounded-xl border bg-card"><div className="text-sm font-medium">{pg.icon} {pg.title}</div><div className="text-xs text-muted-foreground line-clamp-2">{pg.description||'Page preview'}</div><button onClick={()=> useAppStore.getState().setSelectedPage(pg.id)} className="mt-2 text-xs text-violet-600 hover:underline">Open →</button></div> : null })()}
+            {block.type==='page_embed' && block.content && (()=> { const pg:any = pages.find((p:any)=> p.id===block.content); return pg ? <div className="mt-3 p-3 rounded-xl border bg-card"><div className="text-sm font-medium flex items-center gap-1.5"><PageIconInline page={pg} /> {pg.title}</div><div className="text-xs text-muted-foreground line-clamp-2">{pg.description||'Page preview'}</div><button onClick={()=> useAppStore.getState().setSelectedPage(pg.id)} className="mt-2 text-xs text-violet-600 hover:underline">Open →</button></div> : null })()}
           </div>
         {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
@@ -945,6 +946,7 @@ function TableBlock({ content, onChange }: { content:string, onChange:(html:stri
   const [data, setData] = useState<{ columns:any[], rows:any[] }>(()=> parseContent())
   const [tick, setTick] = useState(0)
   const [showTableMenu, setShowTableMenu] = useState(false)
+  const [menuCol, setMenuCol] = useState<string | null>(null)
 
   const getCycleTarget = (freq: string): number => {
     switch(freq) {
@@ -1071,13 +1073,13 @@ function TableBlock({ content, onChange }: { content:string, onChange:(html:stri
   }
 
   return (
-    <div className="rounded-xl border bg-card w-full max-w-full relative group/table overflow-visible">
+    <div className="rounded-xl border bg-background w-full max-w-full relative group/table overflow-visible">
       <button
         onClick={()=> setShowTableMenu(!showTableMenu)}
-        className={`absolute right-3 top-3 z-10 p-1.5 rounded-lg border shadow-sm flex items-center gap-1 text-xs font-medium transition-all ${showTableMenu ? 'bg-accent border-violet-500/20 opacity-100' : 'bg-card/90 backdrop-blur opacity-0 group-hover/table:opacity-100 hover:bg-accent'}`}
+        className={`absolute right-2 top-2 z-10 p-1.5 rounded-lg text-xs transition-all ${showTableMenu ? 'bg-muted text-foreground opacity-100' : 'text-muted-foreground/70 opacity-0 group-hover/table:opacity-100 hover:bg-muted hover:text-foreground'}`}
         title="Table options"
       >
-        <Settings size={14}/> {showTableMenu ? 'Hide' : 'Options'}
+        <Settings size={14}/>
       </button>
       {showTableMenu && (
         <div className="absolute right-3 top-11 z-20 w-[300px] max-w-[85vw] max-h-[70vh] overflow-auto bg-popover border rounded-2xl shadow-xl p-3 space-y-3 animate-in fade-in">
@@ -1116,20 +1118,30 @@ function TableBlock({ content, onChange }: { content:string, onChange:(html:stri
             <col style={{ width: '56px' }} />
           </colgroup>
           <thead>
-            <tr className="bg-muted/50 border-b">
+            <tr className="border-b text-[13px] font-normal text-muted-foreground">
               <th className="w-6 p-1.5"></th>
               {data.columns.map((col:any)=> (
-                <th key={col.id} className="text-left p-1.5 border-r last:border-r-0 max-w-[220px]">
-                  <div className="flex items-center gap-1 min-w-0">
-                    <span className="flex items-center gap-1 text-xs font-medium truncate min-w-0 flex-1">
-                      <span className="shrink-0 hidden sm:inline">{col.type==='text' && <Type size={12}/>}{col.type==='number' && <Hash size={12}/>}{col.type==='checkbox' && <CheckSquare size={12}/>}{col.type==='select' && <BarChart3 size={12}/>}{col.type==='progress' && <BarChart3 size={12} className="text-violet-500"/>}{col.type==='timer' && <Timer size={12} className="text-amber-500"/>}{col.type==='cycle' && <Repeat2 size={12} className="text-emerald-500"/>}{col.type==='date' && <Calendar size={12}/>}</span>
-                      <input value={col.name} onChange={e=> updateColumn(col.id, { name:e.target.value })} className="bg-transparent outline-none flex-1 min-w-0 text-xs font-medium truncate" />
-                    </span>
-                    <select value={col.type} onChange={e=> updateColumn(col.id, { type:e.target.value })} className="text-[10px] border rounded px-1 py-0.5 bg-background shrink-0 max-w-[70px]">
-                      <option value="text">Text</option><option value="number">Number</option><option value="checkbox">Checkbox</option><option value="select">Select</option><option value="date">Date</option><option value="progress">Progress</option><option value="timer">Timer</option><option value="cycle">Cycle</option><option value="status">Status</option>
-                    </select>
-                    <button onClick={()=> deleteCol(col.id)} className="p-0.5 hover:bg-accent rounded text-muted-foreground shrink-0">✕</button>
+                <th key={col.id} className="group/col relative text-left p-1 max-w-[220px]">
+                  <div className="flex items-center gap-1.5 min-w-0 rounded-md px-1.5 py-1.5 hover:bg-muted/50">
+                    <span className="shrink-0 text-muted-foreground/70">{col.type==='text' && <Type size={12}/>}{col.type==='number' && <Hash size={12}/>}{col.type==='checkbox' && <CheckSquare size={12}/>}{col.type==='select' && <BarChart3 size={12}/>}{col.type==='progress' && <BarChart3 size={12}/>}{col.type==='timer' && <Timer size={12}/>}{col.type==='cycle' && <Repeat2 size={12}/>}{col.type==='date' && <Calendar size={12}/>}</span>
+                      <input value={col.name} onChange={e=> updateColumn(col.id, { name:e.target.value })} placeholder="Untitled" className="bg-transparent outline-none flex-1 min-w-0 truncate text-foreground placeholder:text-muted-foreground/50" />
+                    <button onClick={()=> setMenuCol(menuCol===col.id ? null : col.id)} className="shrink-0 rounded p-0.5 text-muted-foreground/60 hover:bg-muted hover:text-foreground opacity-0 group-hover/col:opacity-100" title="Column menu">
+                      <ChevronDown size={12}/>
+                    </button>
                   </div>
+                  {menuCol===col.id && (
+                    <span className="block text-left" onClick={e=> e.stopPropagation()}>
+                      <span className="fixed inset-0 z-30 cursor-default" onClick={()=> setMenuCol(null)} />
+                      <span className="absolute left-0 top-full z-40 block w-[210px] rounded-xl border bg-popover p-2 text-foreground shadow-xl">
+                        <span className="mb-1 block px-1 text-[11px] font-medium text-muted-foreground">Property type</span>
+                        <select value={col.type} onChange={e=> updateColumn(col.id, { type:e.target.value })} className="h-8 w-full rounded-lg border bg-background px-2 text-[13px] outline-none">
+                          <option value="text">Text</option><option value="number">Number</option><option value="checkbox">Checkbox</option><option value="select">Select</option><option value="date">Date</option><option value="progress">Progress</option><option value="timer">Timer</option><option value="cycle">Cycle</option><option value="status">Status</option>
+                        </select>
+                        <span className="my-2 block h-px bg-border" />
+                        <button onClick={()=> { deleteCol(col.id); setMenuCol(null) }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-red-600 hover:bg-red-500/10">✕ Delete column</button>
+                      </span>
+                    </span>
+                  )}
                 </th>
               ))}
               <th className="w-14 p-1.5"></th>
@@ -1137,22 +1149,22 @@ function TableBlock({ content, onChange }: { content:string, onChange:(html:stri
           </thead>
           <tbody>
             {data.rows.map((row:any)=> (
-              <tr key={row.id} className="border-b hover:bg-accent/20 group">
+              <tr key={row.id} className="border-b border-border/50 last:border-0 hover:bg-muted/40 group">
                 <td className="p-1 text-center align-middle">
-                  <span className="w-2 h-2 rounded-full bg-violet-500 inline-block" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-border inline-block group-hover:bg-muted-foreground/40" />
                 </td>
                 {data.columns.map((col:any)=> (
-                  <td key={col.id} className="border-r last:border-r-0 p-1.5 align-middle max-w-[200px] min-w-0">
-                    {col.type==='text' && <input value={row.cells[col.id]||''} onChange={e=> updateCell(row.id, col.id, e.target.value)} placeholder="—" className="w-full min-w-0 bg-transparent outline-none text-sm truncate" />}
-                    {col.type==='number' && <input type="number" value={row.cells[col.id]||''} onChange={e=> updateCell(row.id, col.id, e.target.value)} className="w-full min-w-0 bg-transparent outline-none text-sm" />}
-                    {col.type==='checkbox' && <input type="checkbox" checked={!!row.cells[col.id]} onChange={e=> updateCell(row.id, col.id, e.target.checked)} className="rounded" />}
+                  <td key={col.id} className="p-1.5 align-middle max-w-[200px] min-w-0">
+                    {col.type==='text' && <input value={row.cells[col.id]||''} onChange={e=> updateCell(row.id, col.id, e.target.value)} placeholder="Empty" className="w-full min-w-0 bg-transparent outline-none text-sm truncate placeholder:text-muted-foreground/0 hover:placeholder:text-muted-foreground/50 focus:placeholder:text-muted-foreground/50 px-1 py-0.5 rounded-md focus:bg-muted/50" />}
+                    {col.type==='number' && <input type="number" value={row.cells[col.id]||''} onChange={e=> updateCell(row.id, col.id, e.target.value)} placeholder="Empty" className="w-full min-w-0 bg-transparent outline-none text-sm font-mono placeholder:text-muted-foreground/0 hover:placeholder:text-muted-foreground/50 px-1 py-0.5 rounded-md focus:bg-muted/50" />}
+                    {col.type==='checkbox' && <span className="flex items-center justify-center"><input type="checkbox" checked={!!row.cells[col.id]} onChange={e=> updateCell(row.id, col.id, e.target.checked)} className="rounded accent-violet-500 h-4 w-4" /></span>}
                     {(col.type==='select' || col.type==='status') && (
-                      <select value={row.cells[col.id]||''} onChange={e=> updateCell(row.id, col.id, e.target.value)} className="w-full min-w-0 bg-transparent text-xs border rounded px-1 py-1 truncate">
-                        <option value="">—</option>
+                      <select value={row.cells[col.id]||''} onChange={e=> updateCell(row.id, col.id, e.target.value)} className="w-full min-w-0 bg-transparent text-[13px] rounded-md px-1 py-1 truncate outline-none hover:bg-muted/60">
+                        <option value="">Empty</option>
                         {(col.options||['Todo','Doing','Done']).map((o:string)=> <option key={o} value={o}>{o}</option>)}
                       </select>
                     )}
-                    {col.type==='date' && <input type="date" value={row.cells[col.id]||''} onChange={e=> updateCell(row.id, col.id, e.target.value)} className="w-full min-w-0 bg-transparent text-xs" />}
+                    {col.type==='date' && <input type="date" value={row.cells[col.id]||''} onChange={e=> updateCell(row.id, col.id, e.target.value)} className="w-full min-w-0 bg-transparent text-[13px] outline-none rounded-md px-1 py-0.5 hover:bg-muted/60" />}
                     {col.type==='progress' && (() => {
                       const val = Math.max(0, Math.min(100, Number(row.cells[col.id]||0)))
                       const color = getProgressColor(val)
@@ -1241,21 +1253,17 @@ function TableBlock({ content, onChange }: { content:string, onChange:(html:stri
                   </td>
                 ))}
                 <td className="p-1 flex gap-0.5 opacity-0 group-hover:opacity-100">
-                  <button onClick={()=> duplicateRow(row.id)} className="p-1 hover:bg-accent rounded" title="Duplicate">⎘</button>
-                  <button onClick={()=> deleteRow(row.id)} className="p-1 hover:bg-accent rounded text-red-500" title="Delete">✕</button>
+                  <button onClick={()=> duplicateRow(row.id)} className="p-1 hover:bg-muted rounded text-muted-foreground" title="Duplicate">⎘</button>
+                  <button onClick={()=> deleteRow(row.id)} className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-red-600" title="Delete">✕</button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <div className="p-2 border-t bg-muted/20 flex items-center gap-2 text-xs">
-        <span className="px-2 py-1 rounded-full bg-violet-500/10 border text-[11px]">{data.rows.length} rows • {data.columns.length} cols</span>
-        <span className="hidden sm:inline text-muted-foreground">• Click <span className="font-medium text-foreground">Options ↗</span> for columns & rows</span>
-        <span className="ml-auto flex items-center gap-2">
-          <span className="px-2 py-1 rounded-full bg-emerald-500/10 border text-[11px] hidden sm:inline">Avg {Math.round(data.rows.reduce((a:any,r:any)=> a + (Number(r.cells[data.columns.find((c:any)=> c.type==='progress')?.id]||0)),0)/Math.max(1,data.rows.length))}%</span>
-          <Button variant="ghost" size="sm" onClick={addRow} className="h-7 text-xs hidden sm:flex"><TableIcon size={12} className="mr-1"/> Add row</Button>
-        </span>
+      <div className="px-2 py-1 border-t border-border/50 flex items-center gap-2">
+        <button onClick={addRow} className="flex items-center gap-1.5 px-2 py-1.5 text-[13px] text-muted-foreground/80 hover:text-muted-foreground rounded-md hover:bg-muted/40">+ New</button>
+        <span className="ml-auto text-xs tabular-nums text-muted-foreground/60">{data.rows.length}</span>
       </div>
     </div>
   )

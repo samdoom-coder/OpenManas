@@ -47,8 +47,11 @@ const pageSchema = z.object({
   workspaceId: z.string(),
   parentId: z.string().nullable().optional(),
   title: z.string().min(1).max(200),
-  icon: z.string().optional(),
+  icon: z.string().max(100).optional(),
+  iconType: z.enum(['emoji', 'lucide', 'custom', 'none']).optional(),
+  customIcon: z.string().max(3000000).optional(),
   cover: z.string().optional(),
+  description: z.string().max(2000).optional(),
 })
 
 const blockSchema = z.object({

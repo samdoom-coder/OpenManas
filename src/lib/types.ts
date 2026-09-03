@@ -26,12 +26,16 @@ export interface WorkspaceMember {
   joinedAt: string
 }
 
+export type PageIconType = 'emoji' | 'lucide' | 'custom' | 'none'
+
 export interface Page {
   id: ID
   workspaceId: ID
   parentId: ID | null
   title: string
-  icon?: string
+  icon?: string // emoji char when iconType==='emoji', lucide component name when iconType==='lucide'
+  iconType?: PageIconType // default: 'emoji' for backwards compat when `icon` is set
+  customIcon?: string // dataURL or http(s) URL when iconType==='custom'
   cover?: string
   description?: string
   isFavorite: boolean

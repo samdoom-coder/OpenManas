@@ -1,7 +1,8 @@
 import { useAppStore } from '@/stores/appStore'
 import { cn } from '@/lib/utils'
-import { LayoutDashboard, Files, Database, Star, Clock, Share2, Trash2, LayoutTemplate, Settings, ChevronDown, Plus, Search, Sparkles, MoreHorizontal, FileText } from 'lucide-react'
+import { LayoutDashboard, Files, Database, Star, Clock, Share2, Trash2, LayoutTemplate, Settings, ChevronDown, Plus, Search, Sparkles, MoreHorizontal } from 'lucide-react'
 import { useState } from 'react'
+import { PageIconInline } from '@/components/ui/pageIcon'
 
 export function Sidebar({ onNavigate, activeRoute }: { onNavigate?: (r:string)=>void, activeRoute?:string }) {
   const { pages, databases, selectedPageId, selectedDatabaseId, setSelectedPage, setSelectedDatabase, createPage, workspace, sidebarCollapsed, toggleSidebar, user } = useAppStore()
@@ -128,7 +129,7 @@ function PageTreeNode({ node, tree, depth }: { node: any, tree: any[], depth: nu
     <div>
       <div className={cn("group flex items-center gap-1 px-2 py-1.5 rounded-xl text-sm hover:bg-accent cursor-pointer", isActive && "bg-accent font-medium")} style={{ paddingLeft: 8 + depth*14 }}>
         {children.length>0 ? <button onClick={()=>setOpen(!open)} className="p-0.5 rounded hover:bg-black/5"><ChevronDown size={12} className={cn("transition-transform", !open && "-rotate-90")}/></button> : <span className="w-3"/>}
-        <span className="text-xs">{node.icon || <FileText size={12}/>}</span>
+        <span className="text-xs"><PageIconInline page={node} /></span>
         <span className="truncate flex-1" onClick={()=>setSelectedPage(node.id)}>{node.title}</span>
         <button onClick={()=> createPage('Untitled', node.id)} className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-white/10 rounded"><Plus size={12}/></button>
       </div>

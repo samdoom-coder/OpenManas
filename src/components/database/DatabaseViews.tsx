@@ -2,15 +2,17 @@ import { useState, useMemo } from 'react'
 import { useAppStore } from '@/stores/appStore'
 import type { Database, DatabaseRecord, FilterGroup, FilterCondition } from '@/lib/types'
 import { evaluateFilter, sortRecords, groupRecords } from '@/lib/databaseEngine'
+import { propertyDefFor } from '@/lib/propertyDefs'
+import { PropertyCell } from '@/components/database/PropertyCell'
+import { ColumnHeaderMenu, AddPropertyDialog, EditPropertyDialog } from '@/components/database/PropertyMenu'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/input'
-import { Plus, Filter, ArrowUpDown, Eye, MoreHorizontal, Calendar, LayoutGrid, List, Table as TableIcon, Kanban, Clock, GanttChart, Settings, SlidersHorizontal, X } from 'lucide-react'
+import { Plus, Filter, ArrowUpDown, ArrowUp, ArrowDown, Eye, EyeOff, MoreHorizontal, Calendar, LayoutGrid, List, Table as TableIcon, Kanban, Clock, GanttChart, Settings, SlidersHorizontal, X, ChevronDown, Copy, Trash2, GripVertical } from 'lucide-react'
 import { Modal } from '@/components/ui/modal'
 import { cn } from '@/lib/utils'
 
 export function DatabaseViews({ database, compact }: { database: Database, compact?: boolean }) {
-  const { records, createRecord, updateRecord, deleteRecord } = useAppStore()
+  const { records, createRecord, updateRecord, deleteRecord, updateProperty } = useAppStore()
   const dbRecords = records.filter(r=> r.databaseId===database.id)
   const [viewType, setViewType] = useState(database.views[0]?.type || 'table')
   const view = database.views.find(v=> v.type===viewType) || database.views[0]
@@ -35,13 +37,25 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
 
   const handleAdd = () => {
     const props: Record<string, unknown> = {}
-    database.properties.forEach(p=> props[p.id]= newRow[p.id] ?? (p.type==='status' ? p.options?.[0] : p.type==='checkbox' ? false : ''))
+    database.properties.forEach(p => {
+      const def = propertyDefFor(p.type)
+      const v = newRow[p.id] ?? def.defaultValue(p)
+      props[p.id] = v
+    })
     if (!props[database.properties[0].id]) props[database.properties[0].id] = 'Untitled'
-    createRecord(database.id, props)
+    const rec = createRecord(database.id, props)
     setNewRow({})
+    return rec
   }
 
   const toggleHide = (id:string) => {
+    // un-hide schema-hidden columns too (legacy visible=false)
+    const prop = database.properties.find(p => p.id === id)
+    if (prop && prop.visible === false && !hiddenCols.has(id)) {
+      updateProperty(database.id, id, { visible: true })
+      return
+    }
+    if (prop && prop.visible === false) updateProperty(database.id, id, { visible: true })
     setHiddenCols(s=> {
       const n = new Set(s)
       if (n.has(id)) n.delete(id); else n.add(id)
@@ -100,20 +114,36 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
               <div className="grid grid-cols-3 gap-1.5">
                 <Button variant={filterGroup ? "secondary" : "outline"} size="sm" className="text-xs" onClick={()=> setShowFilter(true)}><Filter size={12} className="mr-1"/> Filter</Button>
                 <Button variant={sort ? "secondary" : "outline"} size="sm" className="text-xs" onClick={()=> setShowSort(true)}><ArrowUpDown size={12} className="mr-1"/> Sort</Button>
-                <Button variant="outline" size="sm" className="text-xs" onClick={()=> {
-                  const id = prompt('Hide column id (e.g., '+database.properties.map(p=>p.id).join(', ')+') or "clear"')
-                  if (id==='clear') setHiddenCols(new Set())
-                  else if (id) toggleHide(id)
-                }}><Eye size={12} className="mr-1"/> Hide</Button>
+                <Button variant={hiddenCols.size>0 ? "secondary" : "outline"} size="sm" className="text-xs" onClick={()=> {
+                  // toggle: hide-all vs show-all quick action happens below; this scrolls to column list
+                  const el = document.getElementById('db-columns-list')
+                  el?.scrollIntoView({ block: 'nearest' })
+                }}><Eye size={12} className="mr-1"/> Columns</Button>
               </div>
               <div className="flex items-center gap-2 text-xs">
                 <span className="text-muted-foreground">{hiddenCols.size} hidden • {filtered.length} shown</span>
                 <button onClick={()=> setHiddenCols(new Set())} className="ml-auto text-xs border rounded-lg px-2 py-1 hover:bg-accent">Show all</button>
               </div>
-              <div className="pt-2 border-t">
-                <div className="text-[11px] font-medium text-muted-foreground mb-1">Hidden columns</div>
-                {hiddenCols.size===0 ? <div className="text-xs text-muted-foreground py-1">No hidden columns</div> : (
-                  <div className="flex flex-wrap gap-1">
+              <div id="db-columns-list" className="pt-2 border-t">
+                <div className="text-[11px] font-medium text-muted-foreground mb-1.5">Columns — click eye to hide, header menu for more</div>
+                <div className="space-y-1 max-h-[180px] overflow-auto">
+                  {database.properties.map(p=> {
+                    const hidden = hiddenCols.has(p.id) || p.visible === false
+                    const def = propertyDefFor(p.type)
+                    return (
+                      <div key={p.id} className={cn("flex items-center gap-2 rounded-lg border px-2 py-1.5 text-xs", hidden && "opacity-60")}>
+                        <span className="grid h-5 w-5 place-items-center rounded bg-muted text-[10px] font-bold shrink-0">{def.icon}</span>
+                        <span className="flex-1 min-w-0 truncate font-medium">{p.name}</span>
+                        <span className="shrink-0 rounded border px-1 text-[10px] text-muted-foreground capitalize">{p.type.replace('_',' ')}</span>
+                        <button onClick={()=> toggleHide(p.id)} className="shrink-0 rounded p-1 hover:bg-accent" title={hidden ? 'Show' : 'Hide'}>
+                          {hidden ? <EyeOff size={13}/> : <Eye size={13}/>}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+                {hiddenCols.size>0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
                     {Array.from(hiddenCols).map(id=> (
                       <span key={id} className="text-xs bg-muted border rounded-full px-2 py-1 flex items-center gap-1">{database.properties.find(p=>p.id===id)?.name || id} <button onClick={()=> toggleHide(id)} className="hover:bg-accent rounded px-1">✕</button></span>
                     ))}
@@ -138,19 +168,21 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
         </div>
       )}
 
-      {viewType==='table' && <TableView database={database} records={filtered} hiddenCols={hiddenCols} onUpdate={updateRecord} onDelete={deleteRecord} onSort={(pid)=> setSort({ propertyId: pid, direction: sort?.direction==='asc' ? 'desc' : 'asc'})} />}
+      {viewType==='table' && <TableView database={database} records={filtered} hiddenCols={hiddenCols} onHide={toggleHide} onUpdate={updateRecord} onDelete={deleteRecord} onSort={(pid)=> setSort({ propertyId: pid, direction: sort?.direction==='asc' ? 'desc' : 'asc'})} />}
       {viewType==='board' && <BoardView database={database} records={filtered} onUpdate={updateRecord} />}
       {viewType==='gallery' && <GalleryView database={database} records={filtered} />}
       {viewType==='calendar' && <CalendarView database={database} records={filtered} />}
       {viewType==='list' && <ListView database={database} records={filtered} />}
       {viewType==='timeline' && <TimelineView database={database} records={filtered} />}
 
+      {viewType!=='table' && (
       <div className={cn("flex gap-2 p-2 border rounded-xl bg-muted/10", compact && "hidden sm:flex")}>
         {database.properties.slice(0,4).filter(p=> !hiddenCols.has(p.id)).map(p=> (
           <Input key={p.id} placeholder={p.name} value={newRow[p.id]||''} onChange={e=> setNewRow(s=> ({...s, [p.id]: e.target.value}))} className="h-8 text-sm flex-1"/>
         ))}
         <Button size="sm" onClick={handleAdd}>Add row</Button>
       </div>
+      )}
 
       {showFilter && <FilterModal database={database} initial={filterGroup} onApply={g=> { setFilterGroup(g); setShowFilter(false)}} onClose={()=> setShowFilter(false)} />}
       {showSort && <SortModal database={database} current={sort} onApply={s=> { setSort(s); setShowSort(false)}} onClose={()=> setShowSort(false)} />}
@@ -217,59 +249,238 @@ function SortModal({ database, current, onApply, onClose }: { database: Database
   )
 }
 
-function TableView({ database, records, hiddenCols, onUpdate, onDelete, onSort }: { database: Database, records: DatabaseRecord[], hiddenCols:Set<string>, onUpdate:(id:string, props:any)=>void, onDelete:(id:string)=>void, onSort:(pid:string)=>void }) {
-  const [editing, setEditing] = useState<string | null>(null)
-  const visibleProps = database.properties.filter(p=> p.visible!==false && !hiddenCols.has(p.id))
+function TableView({ database, records, hiddenCols, onHide, onUpdate, onDelete, onSort }: { database: Database, records: DatabaseRecord[], hiddenCols:Set<string>, onHide:(propId:string)=>void, onUpdate:(id:string, props:any)=>void, onDelete:(id:string)=>void, onSort:(pid:string)=>void }) {
+  const { createRecord, updateProperty, reorderProperty } = useAppStore()
+  const [editing, setEditing] = useState<string | null>(null) // `${recordId}:${propId}`
+  const [menuProp, setMenuProp] = useState<string | null>(null)
+  const [editPropId, setEditPropId] = useState<string | null>(null)
+  const [showAddProp, setShowAddProp] = useState(false)
+  const [rowMenu, setRowMenu] = useState<string | null>(null)
+  const [dragProp, setDragProp] = useState<string | null>(null)
+  const [liveWidths, setLiveWidths] = useState<Record<string, number>>({})
+  const [sortState, setSortState] = useState<{ propertyId: string; direction: 'asc' | 'desc' } | null>(null)
+
+  const visibleProps = database.properties.filter(p => p.visible !== false && !hiddenCols.has(p.id))
+  const widthOf = (id: string, fallback = 160) => liveWidths[id] ?? database.properties.find(p => p.id === id)?.width ?? fallback
+  const editProp = database.properties.find(p => p.id === editPropId)
+
+  const commitCell = (r: DatabaseRecord, propId: string, v: unknown, keepOpen = false) => {
+    onUpdate(r.id, { [propId]: v })
+    if (!keepOpen) setEditing(null)
+  }
+
+  const handleSort = (pid: string) => {
+    const next = sortState?.propertyId === pid && sortState.direction === 'asc' ? { propertyId: pid, direction: 'desc' as const } : { propertyId: pid, direction: 'asc' as const }
+    setSortState(next)
+    onSort(pid)
+  }
+
+  const startResize = (e: React.MouseEvent, propId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startW = widthOf(propId)
+    const onMove = (mv: MouseEvent) => {
+      const w = Math.min(420, Math.max(90, startW + (mv.clientX - startX)))
+      setLiveWidths(s => ({ ...s, [propId]: w }))
+    }
+    const onUp = (up: MouseEvent) => {
+      const w = Math.min(420, Math.max(90, startW + (up.clientX - startX)))
+      updateProperty(database.id, propId, { width: Math.round(w) })
+      setLiveWidths(s => {
+        const n = { ...s }
+        delete n[propId]
+        return n
+      })
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  const dropColumn = (targetId: string) => {
+    if (!dragProp || dragProp === targetId) return
+    const order = database.properties.map(p => p.id)
+    const from = order.indexOf(dragProp)
+    const to = order.indexOf(targetId)
+    if (from === -1 || to === -1) return
+    // move step by step using index-based reorder
+    const without = order.filter(id => id !== dragProp)
+    const insertAt = without.indexOf(targetId)
+    reorderProperty(database.id, dragProp, insertAt)
+    setDragProp(null)
+  }
+
+  const addRow = () => {
+    const props: Record<string, unknown> = {}
+    database.properties.forEach(p => {
+      props[p.id] = propertyDefFor(p.type).defaultValue(p)
+    })
+    if (!props[database.properties[0]?.id]) props[database.properties[0].id] = 'Untitled'
+    const rec = createRecord(database.id, props)
+    if (rec && visibleProps[0]) setEditing(`${rec.id}:${visibleProps[0].id}`)
+  }
+
+  const totalWidth = visibleProps.reduce((n, p) => n + widthOf(p.id), 0) + 32 + 40 + 40
+
   return (
-    <div className="border rounded-2xl overflow-hidden bg-card w-full max-w-full">
-      <div className="w-full max-w-full overflow-x-auto">
-        <table className="w-full text-sm table-fixed min-w-[560px] md:min-w-0">
-          <colgroup>
-            <col style={{ width: '44px' }} />
-            {visibleProps.map(p=> <col key={p.id} style={{ width: `${Math.max(14, 86 / Math.max(1, visibleProps.length))}%` }} />)}
-            <col style={{ width: '40px' }} />
-          </colgroup>
-          <thead className="bg-muted/40 border-b text-xs">
+    <div className="overflow-hidden rounded-xl border bg-background" onClick={() => { setEditing(null); setMenuProp(null); setRowMenu(null) }}>
+      <div className="w-full overflow-x-auto">
+        <table className="border-collapse text-sm" style={{ width: Math.max(totalWidth, 640) }}>
+          <thead className="border-b text-[13px] font-normal text-muted-foreground">
             <tr>
-              <th className="text-left px-2 py-2.5 font-medium w-10">#</th>
-              {visibleProps.map(p=> (
-                <th key={p.id} className="text-left px-2 py-2.5 font-medium cursor-pointer hover:bg-muted max-w-[220px]" onClick={()=> onSort(p.id)}>
-                  <span className="flex items-center gap-1 min-w-0">
-                    <span className="truncate min-w-0 flex-1">{p.name}</span>
-                    <span className="text-[10px] border rounded px-1 shrink-0 hidden sm:inline">{p.type}</span>
-                    <ArrowUpDown size={10} className="shrink-0 opacity-60" />
-                  </span>
-                </th>
-              ))}
-              <th className="w-10"></th>
+              <th className="w-8 px-1 py-2" />
+              {visibleProps.map(p => {
+                const def = propertyDefFor(p.type)
+                const sorted = sortState?.propertyId === p.id
+                return (
+                  <th
+                    key={p.id}
+                    draggable
+                    onDragStart={e => { setDragProp(p.id); e.dataTransfer.effectAllowed = 'move' }}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => { e.preventDefault(); dropColumn(p.id) }}
+                    onDragEnd={() => setDragProp(null)}
+                    style={{ width: widthOf(p.id) }}
+                    className={cn('group relative select-none p-0 text-left font-normal', dragProp === p.id && 'opacity-50')}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => setMenuProp(menuProp === p.id ? null : p.id)}
+                      className="flex w-full items-center gap-1.5 px-2 py-2 hover:bg-muted/50"
+                      title={`${p.name} (${p.type}) — click for column menu`}
+                    >
+                      <span className="shrink-0 text-[13px] text-muted-foreground/70">{def.icon}</span>
+                      <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                      {sorted ? (
+                        <span className="flex shrink-0 items-center text-foreground" onClick={e => { e.stopPropagation(); handleSort(p.id) }} title="Toggle sort">
+                          {sortState?.direction === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
+                        </span>
+                      ) : (
+                        <span className="hidden shrink-0 items-center group-hover:flex">
+                          <span onClick={e => { e.stopPropagation(); handleSort(p.id) }} className="rounded p-0.5 hover:bg-muted" title="Sort">
+                            <ArrowUpDown size={10} className="text-muted-foreground/70" />
+                          </span>
+                        </span>
+                      )}
+                      <ChevronDown size={12} className={cn('hidden shrink-0 text-muted-foreground/60 group-hover:block', menuProp === p.id && 'block rotate-180')} />
+                    </button>
+                    {menuProp === p.id && (
+                      <span className="relative block">
+                        <ColumnHeaderMenu
+                          database={database}
+                          property={p}
+                          onClose={() => setMenuProp(null)}
+                          onEdit={() => { setEditPropId(p.id); setMenuProp(null) }}
+                          onHide={() => { onHide(p.id); setMenuProp(null) }}
+                        />
+                      </span>
+                    )}
+                    <span
+                      onMouseDown={e => startResize(e, p.id)}
+                      className="absolute bottom-0 right-0 top-0 w-1 cursor-col-resize hover:bg-foreground/20"
+                      title="Drag to resize"
+                    />
+                  </th>
+                )
+              })}
+              <th className="w-10 px-1 py-2">
+                <button onClick={e => { e.stopPropagation(); setShowAddProp(true) }} className="mx-auto grid h-6 w-6 place-items-center rounded-md text-muted-foreground/70 hover:bg-muted hover:text-foreground" title="Add property">
+                  <Plus size={14} />
+                </button>
+              </th>
+              <th className="w-10" />
             </tr>
           </thead>
           <tbody>
-            {records.map((r, idx)=> (
-              <tr key={r.id} className="border-b last:border-0 hover:bg-accent/40 group">
-                <td className="px-2 py-2 text-muted-foreground text-xs">{idx+1}</td>
-                {visibleProps.map(p=> (
-                  <td key={p.id} className="px-2 py-2 align-middle max-w-[200px]" onDoubleClick={()=> setEditing(r.id+'-'+p.id)}>
-                    {editing===r.id+'-'+p.id ? (
-                      <input autoFocus defaultValue={String(r.properties[p.id]??'')} onBlur={e=> { onUpdate(r.id, { [p.id]: e.target.value }); setEditing(null)}} onKeyDown={e=> e.key==='Enter' && (e.target as HTMLInputElement).blur()} className="w-full min-w-0 bg-background border rounded-lg px-2 py-1 text-sm"/>
-                    ) : (
-                      <span className="block w-full min-w-0 break-words whitespace-normal line-clamp-3 text-[13px] leading-5">
-                        {p.type==='status' ? <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium max-w-full truncate ${colorFor(String(r.properties[p.id]))}`}>{String(r.properties[p.id]||'')}</span> :
-                         p.type==='select' ? <Badge>{String(r.properties[p.id]||'')}</Badge> :
-                         p.type==='checkbox' ? <input type="checkbox" checked={!!r.properties[p.id]} onChange={e=> onUpdate(r.id, {[p.id]: e.target.checked})} /> :
-                         p.type==='date' ? <span className="text-xs whitespace-nowrap">{String(r.properties[p.id]??'').slice(0,16)}</span> :
-                         <span className="break-words">{String(r.properties[p.id]??'')}</span>}
+            {records.map((r) => (
+              <tr key={r.id} className="group/row border-b border-border/50 last:border-0 hover:bg-muted/40">
+                <td className="w-8 px-1 py-1.5 align-middle">
+                  <button
+                    onClick={e => { e.stopPropagation(); setRowMenu(rowMenu === r.id ? null : r.id) }}
+                    className="mx-auto grid h-5 w-5 place-items-center rounded text-muted-foreground/0 hover:bg-muted hover:text-muted-foreground group-hover/row:text-muted-foreground/50"
+                    title="Row actions"
+                  >
+                    <GripVertical size={13} />
+                  </button>
+                </td>
+                {visibleProps.map(p => {
+                  const key = `${r.id}:${p.id}`
+                  const isEditing = editing === key
+                  return (
+                    <td
+                      key={p.id}
+                      style={{ width: widthOf(p.id), maxWidth: widthOf(p.id) }}
+                      className="group px-2 py-2 align-middle"
+                      onClick={e => {
+                        e.stopPropagation()
+                        if (p.type === 'checkbox') return // toggles itself
+                        if (!isEditing) setEditing(key)
+                      }}
+                      onDoubleClick={e => { e.stopPropagation(); setEditing(key) }}
+                    >
+                      <PropertyCell
+                        prop={p}
+                        record={r}
+                        value={r.properties[p.id]}
+                        editing={isEditing}
+                        onStartEdit={() => setEditing(key)}
+                        onCommit={v => commitCell(r, p.id, v, p.type === 'multi_select')}
+                        onCancel={() => setEditing(null)}
+                      />
+                    </td>
+                  )
+                })}
+                <td />
+                <td className="relative w-10 px-1 align-middle">
+                  <button
+                    onClick={e => { e.stopPropagation(); setRowMenu(rowMenu === r.id ? null : r.id) }}
+                    className="rounded p-1 text-muted-foreground/0 hover:bg-muted hover:text-muted-foreground group-hover/row:text-muted-foreground/60"
+                    title="Row actions"
+                  >
+                    <MoreHorizontal size={14} />
+                  </button>
+                  {rowMenu === r.id && (
+                    <span className="block" onClick={e => e.stopPropagation()}>
+                      <span className="fixed inset-0 z-30" onClick={() => setRowMenu(null)} />
+                      <span className="absolute right-0 top-full z-40 mt-1 block w-[180px] overflow-hidden rounded-xl border bg-popover p-1 shadow-xl">
+                        <button
+                          onClick={() => { createRecord(database.id, { ...r.properties }); setRowMenu(null) }}
+                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-accent"
+                        >
+                          <Copy size={13} className="text-muted-foreground" /> Duplicate row
+                        </button>
+                        <button
+                          onClick={() => { onDelete(r.id); setRowMenu(null) }}
+                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-red-600 hover:bg-red-500/10"
+                        >
+                          <Trash2 size={13} /> Delete row
+                        </button>
                       </span>
-                    )}
-                  </td>
-                ))}
-                <td className="px-1"><button onClick={()=> onDelete(r.id)} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded"><MoreHorizontal size={14}/></button></td>
+                    </span>
+                  )}
+                </td>
               </tr>
             ))}
-            {records.length===0 && <tr><td colSpan={visibleProps.length+2} className="text-center py-12 text-muted-foreground">No records. Add your first row below or clear filters.</td></tr>}
+            {records.length === 0 && (
+              <tr>
+                <td colSpan={visibleProps.length + 3} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  No records. <button onClick={addRow} className="hover:underline">Add your first row</button> or clear filters.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      <button onClick={addRow} className="flex w-full items-center gap-1.5 border-t border-border/50 px-3 py-2 text-left text-[13px] text-muted-foreground/80 hover:bg-muted/40 hover:text-muted-foreground">
+        <Plus size={13} /> New
+        <span className="ml-auto text-xs tabular-nums">{records.length}</span>
+      </button>
+
+      {showAddProp && <AddPropertyDialog database={database} onClose={() => setShowAddProp(false)} />}
+      {editProp && <EditPropertyDialog database={database} property={editProp} onClose={() => setEditPropId(null)} />}
     </div>
   )
 }

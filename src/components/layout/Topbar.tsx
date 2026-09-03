@@ -2,6 +2,7 @@ import { useAppStore } from '@/stores/appStore'
 import { Search, Command, Bell, Share2, Star, MoreHorizontal, History, Sparkles, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { formatRelative } from '@/lib/utils'
+import { PageIconInline } from '@/components/ui/pageIcon'
 
 export function Topbar() {
   const { pages, selectedPageId, selectedDatabaseId, databases, setCommandOpen, setSearchOpen, notifications } = useAppStore()
@@ -16,7 +17,7 @@ export function Topbar() {
         {page ? breadcrumb.map((b, i)=> (
           <span key={b.id} className="flex items-center gap-1 truncate">
             {i>0 && <ChevronRight size={14} className="shrink-0"/>}
-            <span className={i===breadcrumb.length-1 ? "text-foreground font-medium truncate" : "hover:text-foreground cursor-pointer truncate"}>{b.icon} {b.title}</span>
+            <span className={i===breadcrumb.length-1 ? "text-foreground font-medium truncate flex items-center gap-1" : "hover:text-foreground cursor-pointer truncate flex items-center gap-1"}><PageIconInline page={b} /> {b.title}</span>
           </span>
         )) : db ? <span className="text-foreground font-medium flex items-center gap-2">▦ {db.name}</span> : <span className="text-foreground font-medium">Dashboard</span>}
       </div>

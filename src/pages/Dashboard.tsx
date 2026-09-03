@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Plus, FileText, Database, Clock, Star, TrendingUp, Activity, Users, Sparkles } from 'lucide-react'
 import { formatRelative } from '@/lib/utils'
+import { PageIcon, PageIconInline } from '@/components/ui/pageIcon'
 
 export function Dashboard({ onNavigate }: { onNavigate?: (r:string)=>void }) {
   const { pages, databases, records, activities, createPage, setSelectedPage, setSelectedDatabase, user } = useAppStore()
@@ -56,7 +57,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (r:string)=>void }) {
           <CardContent className="space-y-1">
             {recent.map(p=> (
               <button key={p.id} onClick={()=> setSelectedPage(p.id)} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-accent text-left">
-                <span className="w-8 h-8 rounded-lg bg-muted grid place-items-center text-sm">{p.icon || '📄'}</span>
+                <PageIcon page={p} size="md" />
                 <span className="flex-1 min-w-0">
                   <div className="font-medium text-sm truncate">{p.title}</div>
                   <div className="text-xs text-muted-foreground truncate">{formatRelative(p.updatedAt)} • Edited</div>
@@ -72,7 +73,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (r:string)=>void }) {
             <CardHeader><h3 className="font-semibold flex items-center gap-2"><Star size={16} className="text-amber-500"/> Favorites</h3></CardHeader>
             <CardContent className="space-y-2">
               {favs.length===0 ? <div className="text-sm text-muted-foreground py-6 text-center border rounded-xl border-dashed">Star pages for quick access</div> :
-                favs.map(p=> <button key={p.id} onClick={()=> setSelectedPage(p.id)} className="w-full flex items-center gap-2 p-2.5 rounded-xl hover:bg-accent text-sm font-medium">{p.icon} {p.title}</button>)}
+                favs.map(p=> <button key={p.id} onClick={()=> setSelectedPage(p.id)} className="w-full flex items-center gap-2 p-2.5 rounded-xl hover:bg-accent text-sm font-medium"><PageIconInline page={p} /> {p.title}</button>)}
             </CardContent>
           </Card>
 

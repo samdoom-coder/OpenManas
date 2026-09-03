@@ -2,8 +2,9 @@ import { useAppStore } from '@/stores/appStore'
 import { BlockEditor } from '@/components/editor/BlockEditor'
 import { Button } from '@/components/ui/button'
 import { Star, Share2, MoreHorizontal, MessageSquare, History, Copy, Trash2, Archive } from 'lucide-react'
-import { useState, useRef } from 'react'
-import { EmojiPicker } from '@/components/ui/emojiPicker'
+import { useState, useRef, useEffect } from 'react'
+import { IconPicker } from '@/components/ui/iconPicker'
+import { PageIcon } from '@/components/ui/pageIcon'
 
 export function PageView({ pageId }: { pageId: string }) {
   const { pages, updatePage, deletePage, duplicatePage, toggleFavorite, blocks, addBlock } = useAppStore()
@@ -12,6 +13,22 @@ export function PageView({ pageId }: { pageId: string }) {
   const [showComments, setShowComments] = useState(false)
   const [iconPicker, setIconPicker] = useState(false)
   const commentsRef = useRef<HTMLDivElement>(null)
+  const iconBtnRef = useRef<HTMLDivElement>(null)
+
+  // close icon picker on outside click / Escape
+  useEffect(() => {
+    if (!iconPicker) return
+    const onDown = (e: MouseEvent) => {
+      if (iconBtnRef.current && !iconBtnRef.current.contains(e.target as Node)) setIconPicker(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setIconPicker(false)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [iconPicker])
 
   if (!page) return <div className="p-8 text-center text-muted-foreground">Page not found or trashed.</div>
   if (page.isTrashed) return <TrashedView page={page} />
@@ -34,9 +51,35 @@ export function PageView({ pageId }: { pageId: string }) {
 
         <div className="space-y-3">
           <div className="flex items-start gap-3">
-            <div className="relative">
-              <button onClick={()=> setIconPicker(!iconPicker)} className="text-4xl leading-none p-1 hover:bg-accent rounded-xl">{page.icon || '📄'}</button>
-              {iconPicker && <div className="absolute top-full mt-2 z-20"><EmojiPicker onSelect={(e)=> { updatePage(page.id, { icon:e }); setIconPicker(false) }} onClose={()=> setIconPicker(false)} /></div>}
+            <div className="relative" ref={iconBtnRef}>
+              <button
+                onClick={() => setIconPicker(!iconPicker)}
+                title="Change icon — emoji, Icons or upload"
+                className="rounded-2xl p-1 transition-colors hover:bg-accent"
+              >
+                <PageIcon page={page} size="xl" className="rounded-2xl" />
+              </button>
+              {iconPicker && (
+                <div className="absolute left-0 top-full z-30 mt-2">
+                  <IconPicker
+                    value={page}
+                    onSelect={(patch) => {
+                      updatePage(page.id, {
+                        ...(patch.icon !== undefined ? { icon: patch.icon } : {}),
+                        ...(patch.iconType !== undefined ? { iconType: patch.iconType } : {}),
+                        ...(patch.customIcon !== undefined ? { customIcon: patch.customIcon } : { customIcon: undefined }),
+                        // clearing: when switching to emoji/lucide/none, drop customIcon
+                        ...(patch.iconType && patch.iconType !== 'custom' ? { customIcon: undefined } : {}),
+                        ...(patch.iconType === 'none' ? { icon: undefined } : {}),
+                      } as any)
+                      // keep picker open while browsing uploads, close on definitive picks
+                      if (patch.iconType === 'emoji' || patch.iconType === 'lucide' || patch.iconType === 'none') setIconPicker(false)
+                      if (patch.iconType === 'custom' && patch.customIcon) setIconPicker(false)
+                    }}
+                    onClose={() => setIconPicker(false)}
+                  />
+                </div>
+              )}
             </div>
             <div className="flex-1">
               {editingTitle ? (

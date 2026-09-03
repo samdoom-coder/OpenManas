@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Page, Block, Database, DatabaseRecord, Workspace, User, Activity, Notification, Comment, FileAsset } from '@/lib/types'
+import type { Page, Block, Database, DatabaseProperty, DatabaseRecord, PropertyType, Workspace, User, Activity, Notification, Comment, FileAsset } from '@/lib/types'
 import { generateSeed } from '@/data/seed'
 import { uid } from '@/lib/utils'
 
@@ -42,9 +42,15 @@ interface AppState {
   duplicateBlock: (id: string) => void
   // databases
   createDatabase: (name: string) => Database
-  createRecord: (dbId: string, props: Record<string, unknown>) => void
+  createRecord: (dbId: string, props: Record<string, unknown>) => DatabaseRecord
   updateRecord: (id: string, props: Record<string, unknown>) => void
   deleteRecord: (id: string) => void
+  // database schema (Notion-like columns)
+  addProperty: (dbId: string, prop: { name: string; type: PropertyType; options?: string[] }) => DatabaseProperty
+  updateProperty: (dbId: string, propId: string, patch: Partial<DatabaseProperty>) => void
+  deleteProperty: (dbId: string, propId: string) => void
+  reorderProperty: (dbId: string, propId: string, direction: 'left' | 'right' | number) => void
+  duplicateProperty: (dbId: string, propId: string) => void
   // other
   addActivity: (action: Activity['action'], targetId: string, targetType: string) => void
   addComment: (c: Omit<Comment,'id'|'createdAt'|'updatedAt'>) => void
@@ -53,12 +59,38 @@ interface AppState {
 const defaultUser: User = { id: 'u1', email: 'alex@nexus.so', name: 'Alex Rivera', avatar: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
 const defaultWorkspace: Workspace = { id: 'w1', name: 'Acme Workspace', icon: '⬢', ownerId: 'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
 
+function defaultForProperty(p: DatabaseProperty): unknown {
+  switch (p.type) {
+    case 'checkbox': return false
+    case 'number': return ''
+    case 'select':
+    case 'status': return p.options?.[0] ?? ''
+    case 'multi_select': return []
+    case 'date':
+    case 'date_range': return ''
+    default: return ''
+  }
+}
+
+function normalizePageIcon(p: Page): Page {  if (p.iconType) return p
+  if ((p as Page).customIcon) return { ...p, iconType: 'custom' as const }
+  if (!p.icon) return { ...p, iconType: 'none' as const }
+  // Lucide names are ASCII PascalCase; emojis are non-ASCII
+  if (/^[A-Za-z][A-Za-z0-9]*$/.test(p.icon)) return { ...p, iconType: 'lucide' as const }
+  return { ...p, iconType: 'emoji' as const }
+}
+
 function loadOrSeed() {
   const saved = localStorage.getItem('nexus_state_v1')
   if (saved) {
-    try { return JSON.parse(saved) } catch {}
+    try {
+      const parsed = JSON.parse(saved)
+      if (parsed?.pages) parsed.pages = (parsed.pages as Page[]).map(normalizePageIcon)
+      return parsed
+    } catch {}
   }
   const seed = generateSeed(defaultWorkspace.id, defaultUser.id)
+  seed.pages = (seed.pages as Page[]).map(normalizePageIcon)
   return seed
 }
 
@@ -100,7 +132,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   }),
 
   createPage: (title, parentId=null, icon) => {
-    const p: Page = { id: uid(), workspaceId: get().workspace.id, parentId: parentId ?? null, title, icon, isFavorite: false, isArchived: false, isTrashed: false, isShared: false, createdBy: get().user.id, updatedBy: get().user.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+    const iconType = !icon ? 'none' as const : /^[A-Za-z][A-Za-z0-9]*$/.test(icon) ? 'lucide' as const : 'emoji' as const
+    const p: Page = { id: uid(), workspaceId: get().workspace.id, parentId: parentId ?? null, title, icon, iconType, isFavorite: false, isArchived: false, isTrashed: false, isShared: false, createdBy: get().user.id, updatedBy: get().user.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
     const firstBlockId = uid()
     const firstBlock: Block = { id: firstBlockId, pageId: p.id, parentId: null, type: 'paragraph', content: '', properties: {}, position: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
     set(s => ({ pages: [...s.pages, p], blocks: [...s.blocks, firstBlock], selectedPageId: p.id }))
@@ -189,6 +222,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(s=> ({ records: [...s.records, r]}))
     get().addActivity('record_created', r.id, 'record')
     persist(get())
+    return r
   },
   updateRecord: (id, props) => {
     set(s=> ({ records: s.records.map(r=> r.id===id ? { ...r, properties: { ...r.properties, ...props }, updatedAt: new Date().toISOString() }:r)}))
@@ -196,6 +230,86 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   deleteRecord: (id) => {
     set(s=> ({ records: s.records.filter(r=>r.id!==id)}))
+    persist(get())
+  },
+
+  addProperty: (dbId, prop) => {
+    const p: DatabaseProperty = {
+      id: `p_${uid()}`,
+      name: prop.name.trim() || 'Untitled',
+      type: prop.type,
+      options: prop.options ?? (['select', 'multi_select', 'status'].includes(prop.type) ? ['Option 1'] : undefined),
+      visible: true,
+      width: 160,
+    }
+    set(s => ({
+      databases: s.databases.map(d => d.id === dbId ? { ...d, properties: [...d.properties, p], updatedAt: new Date().toISOString() } : d),
+      // backfill default for existing records
+      records: s.records.map(r => r.databaseId === dbId ? { ...r, properties: { ...r.properties, [p.id]: defaultForProperty(p) } } : r),
+    }))
+    persist(get())
+    return p
+  },
+  updateProperty: (dbId, propId, patch) => {
+    set(s => ({
+      databases: s.databases.map(d => {
+        if (d.id !== dbId) return d
+        return {
+          ...d,
+          properties: d.properties.map(p => {
+            if (p.id !== propId) return p
+            const next = { ...p, ...patch }
+            // ensure option-based types always have at least one option
+            if (['select', 'multi_select', 'status'].includes(next.type) && (!next.options || next.options.length === 0)) {
+              next.options = ['Option 1']
+            }
+            // drop options when switching away from option types
+            if (!['select', 'multi_select', 'status'].includes(next.type)) delete (next as Partial<DatabaseProperty>).options
+            return next
+          }),
+          updatedAt: new Date().toISOString(),
+        }
+      }),
+    }))
+    persist(get())
+  },
+  deleteProperty: (dbId, propId) => {
+    set(s => ({
+      databases: s.databases.map(d => d.id === dbId ? { ...d, properties: d.properties.filter(p => p.id !== propId), updatedAt: new Date().toISOString() } : d),
+      records: s.records.map(r => {
+        if (r.databaseId !== dbId) return r
+        const next = { ...r.properties }
+        delete next[propId]
+        return { ...r, properties: next }
+      }),
+    }))
+    persist(get())
+  },
+  reorderProperty: (dbId, propId, direction) => {
+    set(s => ({
+      databases: s.databases.map(d => {
+        if (d.id !== dbId) return d
+        const idx = d.properties.findIndex(p => p.id === propId)
+        if (idx === -1) return d
+        const next = [...d.properties]
+        const target = typeof direction === 'number' ? direction : direction === 'left' ? idx - 1 : idx + 1
+        if (target < 0 || target >= next.length) return d
+        const [moved] = next.splice(idx, 1)
+        next.splice(target, 0, moved)
+        return { ...d, properties: next, updatedAt: new Date().toISOString() }
+      }),
+    }))
+    persist(get())
+  },
+  duplicateProperty: (dbId, propId) => {
+    const db = get().databases.find(d => d.id === dbId)
+    const orig = db?.properties.find(p => p.id === propId)
+    if (!db || !orig) return
+    const copy: DatabaseProperty = { ...orig, id: `p_${uid()}`, name: `${orig.name} (copy)` }
+    set(s => ({
+      databases: s.databases.map(d => d.id === dbId ? { ...d, properties: [...d.properties, copy], updatedAt: new Date().toISOString() } : d),
+      records: s.records.map(r => r.databaseId === dbId ? { ...r, properties: { ...r.properties, [copy.id]: r.properties[propId] ?? defaultForProperty(copy) } } : r),
+    }))
     persist(get())
   },
 
