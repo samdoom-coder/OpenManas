@@ -53,6 +53,7 @@ const pageSchema = z.object({
   cover: z.string().max(3000000).optional(),
   coverPosition: z.number().min(0).max(100).optional(),
   description: z.string().max(2000).optional(),
+  theme: z.string().max(50).optional(),
 })
 
 const blockSchema = z.object({

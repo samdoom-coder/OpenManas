@@ -39,6 +39,8 @@ export interface Page {
   cover?: string
   coverPosition?: number // vertical focal point 0-100 (%), default 50; image covers only
   description?: string
+  /** Per-page theme id (see src/lib/pageThemes.ts). Undefined = 'default' (inherit global). */
+  theme?: string
   isFavorite: boolean
   isArchived: boolean
   isTrashed: boolean

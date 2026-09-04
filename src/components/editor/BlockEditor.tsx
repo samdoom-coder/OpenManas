@@ -14,6 +14,7 @@ import { EmojiPicker } from '@/components/ui/emojiPicker'
 import { PageIconInline } from '@/components/ui/pageIcon'
 import { FontPicker } from '@/components/ui/fontPicker'
 import { useBlockHistory } from '@/hooks/useBlockHistory'
+import { fontFamilyCSS } from '@/lib/fonts'
 
 export function BlockEditor({ pageId }: { pageId: string }) {
   const { blocks, addBlock, updateBlock, deleteBlock, moveBlock, duplicateBlock } = useAppStore()
@@ -120,6 +121,155 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
   const [commentText, setCommentText] = useState('')
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false)
   const [hasSelection, setHasSelection] = useState(false)
+  // Temporary hover-preview styles (color/highlight/font). Merged over
+  // block.properties for rendering only — cleared on mouse-leave, committed on click.
+  // Picker stays open after click so you can slide/try colours (Done/✕ closes).
+  const [stylePreview, setStylePreview] = useState<Record<string, unknown> | null>(null)
+  const effProps = { ...block.properties, ...(stylePreview || {}) } as Record<string, any>
+  // Saved range preserves the user's text selection while the picker has focus.
+  // Clicking picker buttons blurs contentEditable and collapses the live selection,
+  // so we restore this range before applying inline (selection-only) colour.
+  const savedRangeRef = useRef<Range | null>(null)
+  // How many execCommands the current inline hover-preview applied (for undo-revert).
+  const inlinePreviewCountRef = useRef(0)
+  const selectionInsideBlock = () => {
+    const sel = window.getSelection()
+    const el = contentRef.current
+    if (!el || !sel || sel.rangeCount === 0) return false
+    try {
+      const node = sel.anchorNode
+      return !!node && el.contains(node)
+    } catch { return false }
+  }
+  const hasInlineSelection = () => {
+    const sel = window.getSelection()
+    if (sel && !sel.isCollapsed && sel.toString().trim() && selectionInsideBlock()) return true
+    // Picker has focus and live selection collapsed — fall back to saved range.
+    return hasSelection && !!savedRangeRef.current
+  }
+  const restoreSavedSelection = () => {
+    const el = contentRef.current
+    const sel = window.getSelection()
+    if (!el || !sel) return false
+    if (!sel.isCollapsed && selectionInsideBlock()) {
+      try { savedRangeRef.current = sel.getRangeAt(0).cloneRange() } catch {}
+      return true
+    }
+    if (savedRangeRef.current) {
+      try {
+        el.focus()
+        sel.removeAllRanges()
+        sel.addRange(savedRangeRef.current.cloneRange())
+        return true
+      } catch { return false }
+    }
+    return false
+  }
+  const execHighlight = (value: string) => {
+    // hiliteColor (Chrome) with backColor fallback (Firefox)
+    try {
+      if (document.execCommand('hiliteColor', false, value)) return true
+    } catch {}
+    try { return document.execCommand('backColor', false, value) } catch { return false }
+  }
+  const applyInlineColor = (color: string | undefined, background: string | undefined, persist: boolean) => {
+    const el = contentRef.current
+    if (!el) return false
+    if (!restoreSavedSelection()) return false
+    try { el.focus() } catch {}
+    try {
+      if (color !== undefined) {
+        document.execCommand('foreColor', false, color || 'inherit')
+      }
+      if (background !== undefined) {
+        execHighlight(background || 'transparent')
+      }
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount > 0) {
+        try { savedRangeRef.current = sel.getRangeAt(0).cloneRange() } catch {}
+      }
+      if (persist) handleInput()
+      return true
+    } catch { return false }
+  }
+  const revertInlinePreview = () => {
+    const n = inlinePreviewCountRef.current
+    if (!n) return
+    inlinePreviewCountRef.current = 0
+    const el = contentRef.current
+    try { el?.focus() } catch {}
+    try {
+      for (let i = 0; i < n; i++) document.execCommand('undo')
+    } catch {}
+    restoreSavedSelection()
+  }
+  const previewStyle = (patch: Record<string, unknown>) => {
+    // Hover: selection → live-preview just the selection; otherwise preview whole block.
+    if (hasInlineSelection()) {
+      revertInlinePreview()
+      const c = patch.color as string | undefined
+      const bg = (patch.background ?? patch.bg) as string | undefined
+      if (c === undefined && bg === undefined) return
+      if (!restoreSavedSelection()) return
+      const el = contentRef.current
+      try { el?.focus() } catch {}
+      let count = 0
+      try {
+        if (c !== undefined && document.execCommand('foreColor', false, (c as string) || 'inherit')) count++
+        if (bg !== undefined && execHighlight((bg as string) || 'transparent')) count++
+      } catch {}
+      inlinePreviewCountRef.current = count
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount > 0) {
+        try { savedRangeRef.current = sel.getRangeAt(0).cloneRange() } catch {}
+      }
+      return
+    }
+    setStylePreview((prev) => ({ ...(prev || {}), ...patch }))
+  }
+  const clearStylePreview = () => {
+    revertInlinePreview()
+    setStylePreview(null)
+  }
+  const commitColor = (c: { color: string; bg: string }) => {
+    // Click: selection → paint only the selected text (keep picker open);
+    // otherwise paint the whole block (keep picker open for slide-to-pick).
+    if (hasInlineSelection()) {
+      revertInlinePreview()
+      applyInlineColor(c.color, c.bg, true)
+      setStylePreview(null)
+      return
+    }
+    onChange({ properties: { ...block.properties, color: c.color, background: c.bg } })
+    setStylePreview(null)
+    // NOTE: intentionally NOT closing — Done/✕/outside closes so you can try colours.
+  }
+  const closeColor = () => {
+    revertInlinePreview()
+    setStylePreview(null)
+    setColorOpen(false)
+  }
+  const commitFontPatch = (patch: Record<string, any>) => {
+    const hasColorKeys = patch.color !== undefined || patch.background !== undefined || (patch as any).bg !== undefined
+    if (hasColorKeys && hasInlineSelection() && contentRef.current) {
+      revertInlinePreview()
+      const c = (patch.color as string | undefined) ?? (block.properties.color as string) ?? ''
+      const b = ((patch.background ?? (patch as any).bg) as string | undefined) ?? (block.properties.background as string) ?? ''
+      const { color: _c, background: _b, bg: _bg, ...rest } = patch as any
+      if (Object.keys(rest).length === 0) {
+        applyInlineColor(c, b, true)
+        setStylePreview(null)
+        return
+      }
+      applyInlineColor(c, b, true)
+      onChange({ properties: { ...block.properties, ...rest } })
+      setStylePreview(null)
+      return
+    }
+    onChange({ properties: { ...block.properties, ...patch } })
+    setStylePreview(null)
+    // keep open — Done closes
+  }
   const menuRef = useRef<HTMLDivElement>(null)
   const { push } = useToast()
   const { addComment, user, pages, databases, comments } = useAppStore() as any
@@ -243,6 +393,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
     const el = contentRef.current
     if (el && ((anchor && el.contains(anchor)) || (focusNode && el.contains(focusNode)))) {
       setHasSelection(true)
+      try { savedRangeRef.current = sel.getRangeAt(0).cloneRange() } catch {}
     } else {
       setHasSelection(false)
     }
@@ -393,6 +544,9 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
             onTurnInto={(t)=> { setActionsMenuOpen(false); handleSlashSelect(t) }}
             commentCount={commentCount}
             forceShow
+            onStylePreview={previewStyle}
+            onClearStylePreview={clearStylePreview}
+            onFontCommit={commitFontPatch}
           />
           <div className="flex items-center gap-1 mt-3 pt-3 border-t">
             <button onClick={()=> onMove('up')} className="flex-1 py-2 rounded-xl border hover:bg-accent text-xs flex items-center justify-center gap-1.5"><ArrowUp size={12}/> Move up</button>
@@ -442,7 +596,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         {renderDragMenu()}
         {renderCommentHover()}
         <div className="w-full py-2"><hr className="border-t" /></div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -471,14 +625,14 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
             onKeyUp={handleKeyUp}
             onClick={handleClickContent}
             data-placeholder="To-do"
-            style={{ color: (block.properties.color as string)||undefined, background: (block.properties.background as string)||undefined, fontSize: (block.properties.fontSize as number) ? `${block.properties.fontSize}px` : undefined, fontFamily: (block.properties.fontFamily as string)==='caveat' ? "'Caveat', cursive" : (block.properties.fontFamily as string)==='mono' ? 'JetBrains Mono, monospace' : (block.properties.fontFamily as string)==='serif' ? 'Georgia, serif' : undefined, fontWeight: (block.properties.fontWeight as string)||undefined, fontStyle: (block.properties.italic as boolean) ? 'italic' : undefined }}
+            style={{ color: (effProps.color as string)||undefined, background: (effProps.background as string)||undefined, fontSize: (effProps.fontSize as number) ? `${effProps.fontSize}px` : undefined, fontFamily: fontFamilyCSS(effProps.fontFamily as string), fontWeight: (effProps.fontWeight as string)||undefined, fontStyle: (effProps.italic as boolean) ? 'italic' : undefined }}
             className={cn("flex-1 outline-none min-h-[24px] text-[15px] leading-6 empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground", (block.properties.checked as boolean) && "line-through text-muted-foreground")}
           />
           {hasSelection && focused && renderSelectionBubble()}
           {!hasSelection && focused && showToolbar && <FloatingToolbar onFormat={(cmd)=> {document.execCommand(cmd); handleInput()}} />}
           {slashOpen && <SlashMenu query={slashQuery} onSelect={handleSlashSelect} onClose={handleCloseSlash} />}
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -506,7 +660,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           )}
           <div className="text-xs text-muted-foreground px-1">Caption: <span ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} onMouseUp={handleMouseUp} data-placeholder="Add caption..." className="outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground" /></div>
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -534,7 +688,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           ) : null}
           <FileUploadSimple onUpload={(url)=> onChange({ content:url })} accept={block.type==='audio' ? 'audio/*' : '*/*'} />
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -560,7 +714,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           ) : null}
           <input defaultValue={block.content} onBlur={e=> onChange({ content:e.target.value })} placeholder="Paste video URL (YouTube, mp4) — e.g. https://www.youtube.com/watch?v=..." className="w-full text-sm border rounded-xl px-3 py-2 bg-background" />
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -577,7 +731,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         <div className="w-full">
           <TableBlock content={block.content} onChange={(html)=> onChange({ content: html })} />
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -622,7 +776,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           />
           {slashOpen && <SlashMenu query={slashQuery} onSelect={handleSlashSelect} onClose={handleCloseSlash} />}
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -648,7 +802,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           <input defaultValue={block.content} onBlur={e=> onChange({ content:e.target.value })} placeholder="Paste URL to bookmark..." className="w-full mt-2 text-sm border rounded-xl px-3 py-2 bg-background" />
           <input defaultValue={block.properties.title as string||''} onBlur={e=> onChange({ properties:{ ...block.properties, title:e.target.value}})} placeholder="Title (optional)" className="w-full mt-1 text-xs border rounded-xl px-3 py-1.5 bg-background" />
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -666,7 +820,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           <div ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} onKeyDown={handleKeyDown} onMouseUp={handleMouseUp} data-placeholder="E = mc^2" className="min-h-[40px] p-3 rounded-xl border bg-muted font-mono text-center text-lg empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground outline-none" />
           <div className="text-xs text-muted-foreground mt-1 text-center">Rendered: <span className="font-mono">{contentRef.current?.innerText||block.content}</span></div>
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -694,7 +848,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
             {block.type==='database_embed' && block.content && (()=> { const db:any = databases.find((d:any)=> d.id===block.content); return db ? <div className="mt-3 border rounded-xl overflow-hidden bg-card shadow-sm"><div className="p-2.5 bg-muted/40 border-b text-xs font-medium flex items-center justify-between"><span className="flex items-center gap-2">▦ {db.name} — inline</span><span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500 text-white">LIVE</span></div><div className="max-h-[480px] overflow-auto"><DatabaseViews database={db} compact /></div></div> : null })()}
             {block.type==='page_embed' && block.content && (()=> { const pg:any = pages.find((p:any)=> p.id===block.content); return pg ? <div className="mt-3 p-3 rounded-xl border bg-card"><div className="text-sm font-medium flex items-center gap-1.5"><PageIconInline page={pg} /> {pg.title}</div><div className="text-xs text-muted-foreground line-clamp-2">{pg.description||'Page preview'}</div><button onClick={()=> useAppStore.getState().setSelectedPage(pg.id)} className="mt-2 text-xs text-violet-600 hover:underline">Open →</button></div> : null })()}
           </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -734,7 +888,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           onKeyUp={handleKeyUp}
           onClick={handleClickContent}
           data-placeholder={placeholderFor(block.type)}
-          style={{ color: (block.properties.color as string)||undefined, background: isCallout ? undefined : (block.properties.background as string)||undefined, fontSize: (block.properties.fontSize as number) ? `${block.properties.fontSize}px` : undefined, fontFamily: (block.properties.fontFamily as string)==='mono' ? 'JetBrains Mono, monospace' : (block.properties.fontFamily as string)==='serif' ? 'Georgia, serif' : (block.properties.fontFamily as string)==='caveat' ? "'Caveat', cursive" : undefined, fontWeight: (block.properties.fontWeight as string)||undefined, fontStyle: (block.properties.italic as boolean) ? 'italic' : undefined }}
+          style={{ color: (effProps.color as string)||undefined, background: isCallout ? undefined : (effProps.background as string)||undefined, fontSize: (effProps.fontSize as number) ? `${effProps.fontSize}px` : undefined, fontFamily: fontFamilyCSS(effProps.fontFamily as string), fontWeight: (effProps.fontWeight as string)||undefined, fontStyle: (effProps.italic as boolean) ? 'italic' : undefined }}
           className={cn(
             "outline-none min-h-[28px] py-1 text-[15px] leading-7 focus:outline-none relative",
             "empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground empty:before:pointer-events-none",
@@ -771,16 +925,17 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         {slashOpen && <SlashMenu query={slashQuery} onSelect={handleSlashSelect} onClose={handleCloseSlash} />}
       </div>
 
-      {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties as any} onSelect={(c)=> { onChange({ properties:{ ...block.properties, color:c.color, background:c.bg }}); setColorOpen(false)}} onClose={()=> setColorOpen(false)} /></div>}
+      {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties as any} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
       <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
     </div>
   )
 }
 
-function BlockActions({ block, onChange, onDuplicate, onDelete, onMove, onColor, onComment, currentType, onTurnInto, commentCount, forceShow }: { block?: any, onChange?:(p:any)=>void, onDuplicate:()=>void, onDelete:()=>void, onMove:(d:'up'|'down')=>void, onColor:()=>void, onComment:()=>void, currentType?:string, onTurnInto?:(t:string)=>void, commentCount?:number, forceShow?:boolean }) {
+function BlockActions({ block, onChange, onDuplicate, onDelete, onMove, onColor, onComment, currentType, onTurnInto, commentCount, forceShow, onStylePreview, onClearStylePreview, onFontCommit }: { block?: any, onChange?:(p:any)=>void, onDuplicate:()=>void, onDelete:()=>void, onMove:(d:'up'|'down')=>void, onColor:()=>void, onComment:()=>void, currentType?:string, onTurnInto?:(t:string)=>void, commentCount?:number, forceShow?:boolean, onStylePreview?:(patch:Record<string,unknown>)=>void, onClearStylePreview?:()=>void, onFontCommit?:(patch:Record<string,any>)=>void }) {
   const [turnOpen, setTurnOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [fontOpen, setFontOpen] = useState(false)
+  const closeFont = () => { setFontOpen(false); onClearStylePreview?.() }
   return (
     <div className={cn("flex items-center gap-1 pt-1 shrink-0 relative flex-wrap", !forceShow && "opacity-0 group-hover:opacity-100")}>
       <div className="relative">
@@ -789,7 +944,7 @@ function BlockActions({ block, onChange, onDuplicate, onDelete, onMove, onColor,
       </div>
       <div className="relative">
         <button onClick={()=> setFontOpen(!fontOpen)} className="p-1.5 rounded-lg hover:bg-accent" title="Font">Aa</button>
-        {fontOpen && <FontPicker current={block?.properties} onSelect={(patch:any)=> { if (onChange) onChange({ properties:{ ...block.properties, ...patch }}) }} onClose={()=> setFontOpen(false)} />}
+        {fontOpen && <FontPicker current={block?.properties} onSelect={(patch:any)=> { if (onFontCommit) onFontCommit(patch); else if (onChange) onChange({ properties:{ ...block.properties, ...patch }}); onClearStylePreview?.() }} onPreview={onStylePreview} onClearPreview={onClearStylePreview} onClose={closeFont} />}
       </div>
       {onTurnInto && (
         <div className="relative">
@@ -814,8 +969,9 @@ function BlockActions({ block, onChange, onDuplicate, onDelete, onMove, onColor,
   )
 }
 
-function ColorPicker({ colors, current, onSelect, onClose }: { colors:{name:string, color:string, bg:string}[], current:any, onSelect:(c:any)=>void, onClose:()=>void }) {
+function ColorPicker({ colors, current, preview, inlineMode, onPreview, onClearPreview, onSelect, onClose }: { colors:{name:string, color:string, bg:string}[], current:any, preview?: Record<string, unknown> | null, inlineMode?: boolean, onPreview?:(patch:Record<string,unknown>)=>void, onClearPreview?:()=>void, onSelect:(c:any)=>void, onClose:()=>void }) {
   const [tab, setTab] = useState<'text'|'highlight'>('text')
+  const [hover, setHover] = useState<{ color?: string; background?: string } | null>(null)
   const textColors = [
     { name:'Default', value:'' },
     { name:'Black', value:'#111827' }, { name:'Gray', value:'#6b7280' }, { name:'Red', value:'#dc2626' },
@@ -833,9 +989,42 @@ function ColorPicker({ colors, current, onSelect, onClose }: { colors:{name:stri
     { name:'Blue', value:'#dbeafe' }, { name:'Indigo', value:'#e0e7ff' }, { name:'Violet', value:'#ede9fe' },
     { name:'Purple', value:'#f3e8ff' }, { name:'Fuchsia', value:'#fae8ff' }, { name:'Pink', value:'#fce7f3' }, { name:'Rose', value:'#ffe4e6' },
   ]
+  // Hover previews both the box below AND the actual block (via parent).
+  // Click commits. Leaving the picker reverts to the committed value.
+  const hoverText = (value: string) => {
+    const patch = { color: value, background: (current?.background as string) || '' }
+    setHover({ color: value, background: patch.background })
+    onPreview?.(patch)
+  }
+  const hoverBg = (value: string) => {
+    const patch = { color: (current?.color as string) || '', background: value }
+    setHover({ color: patch.color, background: value })
+    onPreview?.(patch)
+  }
+  const hoverBoth = (c: { color: string; bg: string }) => {
+    const patch = { color: c.color, background: c.bg }
+    setHover({ color: c.color, background: c.bg })
+    onPreview?.(patch)
+  }
+  const clearHover = () => {
+    setHover(null)
+    onClearPreview?.()
+  }
+  const commit = (c: any) => {
+    setHover(null)
+    onClearPreview?.()
+    onSelect(c)
+  }
+  const previewColor = hover?.color ?? (preview?.color as string | undefined) ?? current?.color ?? ''
+  const previewBg = hover?.background ?? (preview?.background as string | undefined) ?? current?.background ?? ''
   return (
-    <div className="absolute right-0 top-full mt-2 z-20 bg-popover border rounded-2xl shadow-xl p-3 w-[300px]">
-      <div className="flex items-center justify-between mb-2"><span className="text-xs font-semibold">Text color & highlight</span><button onClick={onClose} className="p-1 hover:bg-accent rounded text-xs">✕</button></div>
+    <div className="absolute right-0 top-full mt-2 z-20 bg-popover border rounded-2xl shadow-xl p-3 w-[300px]" onMouseLeave={clearHover}>
+      <div className="flex items-center justify-between mb-1"><span className="text-xs font-semibold">Text color & highlight</span><button onClick={onClose} className="p-1 hover:bg-accent rounded text-xs">✕</button></div>
+      <div className="text-[10px] text-muted-foreground mb-2">
+        {inlineMode
+          ? '✎ Selection detected — hover previews, click paints only the selected text'
+          : 'Hover to preview whole block • click to apply • picker stays open'}
+      </div>
       <div className="flex items-center gap-1 p-1 bg-muted rounded-xl mb-3">
         <button onClick={()=> setTab('text')} className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors ${tab==='text' ? 'bg-background shadow border' : 'hover:bg-accent'}`}>Text</button>
         <button onClick={()=> setTab('highlight')} className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors ${tab==='highlight' ? 'bg-background shadow border' : 'hover:bg-accent'}`}>Highlight</button>
@@ -845,49 +1034,49 @@ function ColorPicker({ colors, current, onSelect, onClose }: { colors:{name:stri
           <div className="text-[11px] font-medium text-muted-foreground mb-1">Text color</div>
           <div className="grid grid-cols-6 gap-1.5">
             {textColors.map(c=> (
-              <button key={c.name+c.value} onClick={()=> onSelect({ color: c.value, bg: current?.background || '' })} title={c.name} className={`h-8 rounded-lg border grid place-items-center text-xs font-bold ${current?.color===c.value ? 'ring-2 ring-violet-500 ring-offset-1' : ''}`} style={{ background: c.value || 'white', color: c.value ? 'white' : '#111827', borderColor: c.value || '#e5e7eb' }}>
+              <button key={c.name+c.value} onClick={()=> commit({ color: c.value, bg: current?.background || '' })} onMouseEnter={()=> hoverText(c.value)} onFocus={()=> hoverText(c.value)} title={`${c.name} — hover to preview, click to apply`} className={`h-8 rounded-lg border grid place-items-center text-xs font-bold transition-transform hover:scale-110 ${current?.color===c.value ? 'ring-2 ring-violet-500 ring-offset-1' : ''}`} style={{ background: c.value || 'white', color: c.value ? 'white' : '#111827', borderColor: c.value || '#e5e7eb' }}>
                 A
               </button>
             ))}
           </div>
           <div className="flex items-center gap-2 mt-3">
-            <input type="color" value={current?.color || '#000000'} onChange={e=> onSelect({ color: e.target.value, bg: current?.background || '' })} className="w-8 h-8 rounded-lg border p-0.5 bg-background cursor-pointer" title="Custom text color" />
-            <span className="text-xs text-muted-foreground flex-1 truncate">{current?.color || 'Default'}</span>
-            <button onClick={()=> onSelect({ color: '', bg: current?.background || '' })} className="text-xs border rounded-lg px-2 py-1 hover:bg-accent">Clear text</button>
+            <input type="color" value={current?.color || '#000000'} onInput={e=> hoverText((e.target as HTMLInputElement).value)} onChange={e=> commit({ color: (e.target as HTMLInputElement).value, bg: current?.background || '' })} className="w-8 h-8 rounded-lg border p-0.5 bg-background cursor-pointer" title="Custom text color — slide to preview, release to apply" />
+            <span className="text-xs text-muted-foreground flex-1 truncate">{previewColor || 'Default'}</span>
+            <button onClick={()=> commit({ color: '', bg: current?.background || '' })} onMouseEnter={()=> hoverText('')} className="text-xs border rounded-lg px-2 py-1 hover:bg-accent">Clear text</button>
           </div>
-          <div className="mt-2 text-[10px] text-muted-foreground">Tip: Use Font Aa menu for Caveat + color preview together</div>
+          <div className="mt-2 text-[10px] text-muted-foreground">Tip: picker stays open — click Done when finished. Use Font Aa for handwriting.</div>
         </>
       ) : (
         <>
           <div className="text-[11px] font-medium text-muted-foreground mb-1">Highlight (background)</div>
           <div className="grid grid-cols-6 gap-1.5">
             {bgColors.map(c=> (
-              <button key={c.name+c.value} onClick={()=> onSelect({ color: current?.color || '', bg: c.value })} title={c.name} className={`h-8 rounded-lg border grid place-items-center text-xs font-medium ${current?.background===c.value ? 'ring-2 ring-violet-500 ring-offset-1' : ''}`} style={{ background: c.value || 'white', color: c.value ? '#111827' : '#9ca3af', borderColor: c.value || '#e5e7eb' }}>
+              <button key={c.name+c.value} onClick={()=> commit({ color: current?.color || '', bg: c.value })} onMouseEnter={()=> hoverBg(c.value)} onFocus={()=> hoverBg(c.value)} title={`${c.name} — hover to preview, click to apply`} className={`h-8 rounded-lg border grid place-items-center text-xs font-medium transition-transform hover:scale-110 ${current?.background===c.value ? 'ring-2 ring-violet-500 ring-offset-1' : ''}`} style={{ background: c.value || 'white', color: c.value ? '#111827' : '#9ca3af', borderColor: c.value || '#e5e7eb' }}>
                 A
               </button>
             ))}
           </div>
           <div className="flex items-center gap-2 mt-3">
-            <input type="color" value={current?.background || '#ffffff'} onChange={e=> onSelect({ color: current?.color || '', bg: e.target.value })} className="w-8 h-8 rounded-lg border p-0.5 bg-background cursor-pointer" title="Custom highlight" />
-            <span className="text-xs text-muted-foreground flex-1 truncate">{current?.background || 'Default'}</span>
-            <button onClick={()=> onSelect({ color: current?.color || '', bg: '' })} className="text-xs border rounded-lg px-2 py-1 hover:bg-accent">Clear bg</button>
+            <input type="color" value={current?.background || '#ffffff'} onInput={e=> hoverBg((e.target as HTMLInputElement).value)} onChange={e=> commit({ color: current?.color || '', bg: (e.target as HTMLInputElement).value })} className="w-8 h-8 rounded-lg border p-0.5 bg-background cursor-pointer" title="Custom highlight — slide to preview, release to apply" />
+            <span className="text-xs text-muted-foreground flex-1 truncate">{previewBg || 'Default'}</span>
+            <button onClick={()=> commit({ color: current?.color || '', bg: '' })} onMouseEnter={()=> hoverBg('')} className="text-xs border rounded-lg px-2 py-1 hover:bg-accent">Clear bg</button>
           </div>
         </>
       )}
       <div className="mt-3 p-2 rounded-xl border bg-muted/20 flex items-center gap-2">
-        <span className="text-xs text-muted-foreground">Preview:</span>
-        <span className="px-2 py-1 rounded text-sm font-medium truncate flex-1" style={{ color: current?.color || undefined, background: current?.background || undefined, fontFamily: current?.fontFamily==='caveat' ? "'Caveat', cursive" : undefined }}>Aa The quick brown fox</span>
+        <span className="text-xs text-muted-foreground shrink-0">Preview:</span>
+        <span className="px-2 py-1 rounded text-sm font-medium truncate flex-1" style={{ color: previewColor || undefined, background: previewBg || undefined, fontFamily: fontFamilyCSS(current?.fontFamily) }}>Aa The quick brown fox</span>
       </div>
       <div className="grid grid-cols-3 gap-1.5 mt-3">
-        <span className="text-[10px] text-muted-foreground col-span-3">Quick palettes (sets both)</span>
+        <span className="text-[10px] text-muted-foreground col-span-3">Quick palettes (sets both) — hover to preview</span>
         {colors.slice(0,6).map(c=> (
-          <button key={c.name} onClick={()=> onSelect(c)} title={c.name} className="h-7 rounded-lg border flex items-center justify-center text-[10px] font-medium truncate px-1" style={{ background: c.bg||'white', color: c.color||'black', borderColor: current?.color===c.color && current?.background===c.bg ? '#8b5cf6' : '#e5e7eb', borderWidth: current?.color===c.color && current?.background===c.bg ? 2 : 1 }}>
+          <button key={c.name} onClick={()=> commit(c)} onMouseEnter={()=> hoverBoth(c)} onFocus={()=> hoverBoth(c)} title={`${c.name} — hover to preview, click to apply`} className="h-7 rounded-lg border flex items-center justify-center text-[10px] font-medium truncate px-1 transition-transform hover:scale-105" style={{ background: c.bg||'white', color: c.color||'black', borderColor: current?.color===c.color && current?.background===c.bg ? '#8b5cf6' : '#e5e7eb', borderWidth: current?.color===c.color && current?.background===c.bg ? 2 : 1 }}>
             {c.name}
           </button>
         ))}
       </div>
       <div className="grid grid-cols-2 gap-1.5 mt-3">
-        <button onClick={()=> onSelect({ color:'', bg:''})} className="text-xs border rounded-lg py-1.5 hover:bg-accent">Clear all</button>
+        <button onClick={()=> commit({ color:'', bg:''})} className="text-xs border rounded-lg py-1.5 hover:bg-accent">Clear all</button>
         <button onClick={onClose} className="text-xs bg-primary text-primary-foreground rounded-lg py-1.5">Done</button>
       </div>
     </div>

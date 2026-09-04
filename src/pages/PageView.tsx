@@ -2,10 +2,12 @@ import { useAppStore } from '@/stores/appStore'
 import { BlockEditor } from '@/components/editor/BlockEditor'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
-import { Star, Share2, MoreHorizontal, MessageSquare, History, Copy, Trash2, Archive, ImagePlus, MoveVertical, ArrowUp, ArrowDown, FolderInput } from 'lucide-react'
+import { Star, Share2, MoreHorizontal, MessageSquare, History, Copy, Trash2, Archive, ImagePlus, MoveVertical, ArrowUp, ArrowDown, FolderInput, Palette } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { IconPicker } from '@/components/ui/iconPicker'
 import { CoverPicker } from '@/components/ui/coverPicker'
+import { ThemePicker } from '@/components/ui/themePicker'
+import { getPageTheme, pageThemeStyle, type PageThemeId } from '@/lib/pageThemes'
 import { resolveCover, clampCoverPosition, DEFAULT_COVER_POSITION } from '@/lib/coverData'
 import { PageIcon } from '@/components/ui/pageIcon'
 
@@ -17,8 +19,10 @@ export function PageView({ pageId }: { pageId: string }) {
   const [showMove, setShowMove] = useState(false)
   const [iconPicker, setIconPicker] = useState(false)
   const [coverAnchor, setCoverAnchor] = useState<'cover' | 'actions' | null>(null)
+  const [themeOpen, setThemeOpen] = useState(false)
   const commentsRef = useRef<HTMLDivElement>(null)
   const iconBtnRef = useRef<HTMLDivElement>(null)
+  const themeBtnRef = useRef<HTMLSpanElement>(null)
 
   // close icon picker on outside click / Escape
   useEffect(() => {
@@ -51,12 +55,34 @@ export function PageView({ pageId }: { pageId: string }) {
     }
   }, [coverAnchor])
 
+  // close theme picker on outside click / Escape
+  useEffect(() => {
+    if (!themeOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (themeBtnRef.current && !themeBtnRef.current.contains(e.target as Node)) setThemeOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setThemeOpen(false)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [themeOpen])
+
   if (!page) return <div className="p-8 text-center text-muted-foreground">Page not found or trashed.</div>
   if (page.isTrashed) return <TrashedView page={page} />
 
   const backlinks = findBacklinks(pageId, pages, blocks)
+  const pageTheme = getPageTheme((page as { theme?: string }).theme)
+  const themeStyle = pageThemeStyle((page as { theme?: string }).theme)
+  const themed = !!themeStyle
 
   return (
+    <div
+      style={themeStyle ? { ...themeStyle, fontFamily: pageTheme.fontFamily } : undefined}
+      className={themed ? 'min-h-full bg-[hsl(var(--background))] text-[hsl(var(--foreground))] transition-colors' : 'min-h-full'}
+    >
     <div className="max-w-[860px] mx-auto w-full">
       <PageCover page={page} anchor={coverAnchor} setAnchor={setCoverAnchor} />
       <div className="px-6 md:px-8 py-6 space-y-6">
@@ -125,6 +151,26 @@ export function PageView({ pageId }: { pageId: string }) {
                   </span>
                 )}
               </span>
+              <span className="relative" ref={themeBtnRef}>
+                <Button variant="ghost" size="sm" onClick={()=> setThemeOpen(!themeOpen)} title={`Page theme: ${pageTheme.name}`}>
+                  <Palette size={14} className="mr-1"/>
+                  <span
+                    className="mr-1 inline-block h-3 w-3 rounded-full border"
+                    style={{ background: pageTheme.swatch }}
+                    aria-hidden
+                  />
+                  {pageTheme.id === 'default' ? 'Theme' : pageTheme.name}
+                </Button>
+                {themeOpen && (
+                  <span className="absolute right-0 top-full z-30 mt-2">
+                    <ThemePicker
+                      value={(page as { theme?: string }).theme}
+                      onSelect={(theme: PageThemeId) => { updatePage(page.id, { theme } as never); setThemeOpen(false) }}
+                      onClose={()=> setThemeOpen(false)}
+                    />
+                  </span>
+                )}
+              </span>
               <Button variant="ghost" size="sm" onClick={()=> setShowMove(true)}><FolderInput size={14} className="mr-1"/> Move</Button>
               <Button variant="ghost" size="sm" onClick={()=> duplicatePage(page.id)}><Copy size={14} className="mr-1"/> Duplicate</Button>
               <Button variant="ghost" size="sm" onClick={()=> updatePage(page.id, { isArchived:true })}><Archive size={14} className="mr-1"/> Archive</Button>
@@ -152,6 +198,7 @@ export function PageView({ pageId }: { pageId: string }) {
         </div>
       </div>
       {showMove && <MovePageDialog pageId={page.id} onClose={()=> setShowMove(false)} />}
+    </div>
     </div>
   )
 }
