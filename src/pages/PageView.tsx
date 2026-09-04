@@ -1,8 +1,9 @@
 import { useAppStore } from '@/stores/appStore'
 import { BlockEditor } from '@/components/editor/BlockEditor'
 import { Button } from '@/components/ui/button'
-import { Star, Share2, MoreHorizontal, MessageSquare, History, Copy, Trash2, Archive, ImagePlus, MoveVertical, ArrowUp, ArrowDown } from 'lucide-react'
-import { useState, useRef, useEffect } from 'react'
+import { Modal } from '@/components/ui/modal'
+import { Star, Share2, MoreHorizontal, MessageSquare, History, Copy, Trash2, Archive, ImagePlus, MoveVertical, ArrowUp, ArrowDown, FolderInput } from 'lucide-react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { IconPicker } from '@/components/ui/iconPicker'
 import { CoverPicker } from '@/components/ui/coverPicker'
 import { resolveCover, clampCoverPosition, DEFAULT_COVER_POSITION } from '@/lib/coverData'
@@ -13,6 +14,7 @@ export function PageView({ pageId }: { pageId: string }) {
   const page = pages.find(p=> p.id===pageId)
   const [editingTitle, setEditingTitle] = useState(false)
   const [showComments, setShowComments] = useState(false)
+  const [showMove, setShowMove] = useState(false)
   const [iconPicker, setIconPicker] = useState(false)
   const [coverAnchor, setCoverAnchor] = useState<'cover' | 'actions' | null>(null)
   const commentsRef = useRef<HTMLDivElement>(null)
@@ -123,6 +125,7 @@ export function PageView({ pageId }: { pageId: string }) {
                   </span>
                 )}
               </span>
+              <Button variant="ghost" size="sm" onClick={()=> setShowMove(true)}><FolderInput size={14} className="mr-1"/> Move</Button>
               <Button variant="ghost" size="sm" onClick={()=> duplicatePage(page.id)}><Copy size={14} className="mr-1"/> Duplicate</Button>
               <Button variant="ghost" size="sm" onClick={()=> updatePage(page.id, { isArchived:true })}><Archive size={14} className="mr-1"/> Archive</Button>
               <Button variant="ghost" size="sm" onClick={()=> deletePage(page.id)} className="text-red-600"><Trash2 size={14} className="mr-1"/> Trash</Button>
@@ -148,12 +151,112 @@ export function PageView({ pageId }: { pageId: string }) {
           <PageVersionHistory pageId={pageId} />
         </div>
       </div>
+      {showMove && <MovePageDialog pageId={page.id} onClose={()=> setShowMove(false)} />}
     </div>
   )
 }
 
 function PropertyPill({ label, value }: { label:string, value:string }) {
   return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-card text-xs"><span className="text-muted-foreground">{label}</span><span className="font-medium">{value}</span></span>
+}
+
+function getDescendantIds(pages: { id: string; parentId: string | null }[], rootId: string): Set<string> {
+  const byParent = new Map<string, string[]>()
+  pages.forEach(p => {
+    if (!p.parentId) return
+    const list = byParent.get(p.parentId) || []
+    list.push(p.id)
+    byParent.set(p.parentId, list)
+  })
+  const out = new Set<string>()
+  const stack = [...(byParent.get(rootId) || [])]
+  while (stack.length) {
+    const id = stack.pop()!
+    if (out.has(id)) continue
+    out.add(id)
+    stack.push(...(byParent.get(id) || []))
+  }
+  return out
+}
+
+function MovePageDialog({ pageId, onClose }: { pageId: string; onClose: () => void }) {
+  const { pages, movePage } = useAppStore()
+  const page = pages.find(p => p.id === pageId)
+  const [q, setQ] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const excluded = useMemo(() => {
+    const d = getDescendantIds(pages, pageId)
+    d.add(pageId)
+    return d
+  }, [pages, pageId])
+
+  const candidates = useMemo(() => {
+    const list = pages.filter(p => !p.isTrashed && !excluded.has(p.id))
+    const query = q.trim().toLowerCase()
+    const filtered = query ? list.filter(p => p.title.toLowerCase().includes(query)) : list
+    return filtered.slice(0, 50).sort((a, b) => a.title.localeCompare(b.title))
+  }, [pages, excluded, q])
+
+  const titleFor = (id: string | null): string => {
+    if (!id) return 'Top level'
+    return pages.find(p => p.id === id)?.title || 'Unknown'
+  }
+
+  const choose = (newParentId: string | null) => {
+    const ok = movePage(pageId, newParentId)
+    if (!ok) {
+      setError('Cannot move there — that would create a cycle or the target is invalid.')
+      return
+    }
+    onClose()
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Move “${page?.title || 'Untitled'}”`} className="max-w-[480px]">
+      <div className="space-y-3">
+        <div className="text-xs text-muted-foreground">
+          Current location: <span className="font-medium text-foreground">{titleFor(page?.parentId ?? null)}</span>. Moving never deletes blocks.
+        </div>
+        <input
+          autoFocus
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Search pages..."
+          className="w-full h-9 rounded-xl border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+        />
+        {error && <div className="text-xs text-red-600 border border-red-500/30 bg-red-500/10 rounded-xl px-3 py-2">{error}</div>}
+        <div className="max-h-[280px] overflow-auto space-y-1">
+          <button
+            onClick={() => choose(null)}
+            disabled={(page?.parentId ?? null) === null}
+            className="w-full flex items-center gap-2 p-2.5 rounded-xl border bg-muted/20 hover:bg-accent text-sm text-left disabled:opacity-50"
+          >
+            <span className="w-7 h-7 grid place-items-center rounded-lg bg-muted text-xs">⌂</span>
+            <span className="flex-1"><span className="font-medium">Top level</span><span className="block text-[11px] text-muted-foreground">No parent page</span></span>
+            {(page?.parentId ?? null) === null && <span className="text-[11px] text-muted-foreground">Current</span>}
+          </button>
+          {candidates.map(p => (
+            <button
+              key={p.id}
+              onClick={() => choose(p.id)}
+              className="w-full flex items-center gap-2 p-2.5 rounded-xl border hover:bg-accent text-sm text-left"
+            >
+              <span className="w-7 h-7 grid place-items-center rounded-lg bg-muted text-xs">{p.icon || '📄'}</span>
+              <span className="flex-1 min-w-0">
+                <span className="font-medium block truncate">{p.title || 'Untitled'}</span>
+                {p.parentId && <span className="block text-[11px] text-muted-foreground truncate">in {titleFor(p.parentId)}</span>}
+              </span>
+              {page?.parentId === p.id && <span className="text-[11px] text-muted-foreground">Current</span>}
+            </button>
+          ))}
+          {candidates.length === 0 && (
+            <div className="py-8 text-center text-xs text-muted-foreground border rounded-xl border-dashed">No eligible pages found.</div>
+          )}
+        </div>
+      </div>
+    </Modal>
+  )
 }
 
 function PageCover({ page, anchor, setAnchor }: { page: { id: string; cover?: string; coverPosition?: number }; anchor: 'cover' | 'actions' | null; setAnchor: (a: 'cover' | 'actions' | null) => void }) {

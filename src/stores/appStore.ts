@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Page, Block, Database, DatabaseProperty, DatabaseRecord, PropertyType, Workspace, User, Activity, Notification, Comment, FileAsset } from '@/lib/types'
-import { generateSeed } from '@/data/seed'
+import { generateSeed, templatesSeed } from '@/data/seed'
 import { uid } from '@/lib/utils'
 import { getRecordTitle } from '@/lib/propertyDefs'
 
@@ -21,6 +21,8 @@ interface AppState {
   commandOpen: boolean
   searchOpen: boolean
   theme: 'dark' | 'light'
+  /** Bumped every time blocks are restored from history (undo/redo) so editors can force-sync even when focused. */
+  historyRev: number
   // actions
   setSelectedPage: (id: string | null) => void
   setSelectedDatabase: (id: string | null) => void
@@ -29,6 +31,8 @@ interface AppState {
   setSearchOpen: (v: boolean) => void
   toggleTheme: () => void
   createPage: (title: string, parentId?: string | null, icon?: string) => Page
+  createPageFromTemplate: (templateName: string, parentId?: string | null) => Page
+  movePage: (id: string, newParentId: string | null) => boolean
   updatePage: (id: string, patch: Partial<Page>) => void
   deletePage: (id: string) => void
   duplicatePage: (id: string) => void
@@ -37,6 +41,7 @@ interface AppState {
   restorePage: (id: string) => void
   // blocks
   addBlock: (pageId: string, type: any, content?: string, pos?: number) => Block
+  restorePageBlocks: (pageId: string, snapshot: Block[]) => void
   updateBlock: (id: string, patch: Partial<Block>) => void
   deleteBlock: (id: string) => void
   moveBlock: (id: string, newPos: number) => void
@@ -44,6 +49,7 @@ interface AppState {
   // databases
   createDatabase: (name: string) => Database
   createRecord: (dbId: string, props: Record<string, unknown>) => DatabaseRecord
+  importRecords: (dbId: string, rows: Record<string, unknown>[]) => DatabaseRecord[]
   updateRecord: (id: string, props: Record<string, unknown>) => void
   deleteRecord: (id: string) => void
   /** Get (creating if needed) the full page backing a record. Null if record missing. */
@@ -122,6 +128,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   commandOpen: false,
   searchOpen: false,
   theme: 'dark',
+  historyRev: 0,
 
   setSelectedPage: (id) => set({ selectedPageId: id, selectedDatabaseId: null }),
   setSelectedDatabase: (id) => set({ selectedDatabaseId: id, selectedPageId: null }),
@@ -143,6 +150,54 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().addActivity('page_created', p.id, 'page')
     persist(get())
     return p
+  },
+  createPageFromTemplate: (templateName, parentId=null) => {
+    const tpl = templatesSeed.find(t => t.name === templateName)
+    const now = new Date().toISOString()
+    const p: Page = {
+      id: uid(), workspaceId: get().workspace.id, parentId: parentId ?? null,
+      title: tpl ? tpl.name : 'Untitled',
+      icon: tpl?.icon, iconType: tpl?.icon ? 'emoji' as const : 'none' as const,
+      isFavorite: false, isArchived: false, isTrashed: false, isShared: false,
+      createdBy: get().user.id, updatedBy: get().user.id, createdAt: now, updatedAt: now,
+    }
+    const tplBlocks = (tpl?.blocks && tpl.blocks.length > 0)
+      ? tpl.blocks
+      : [{ type: 'paragraph', content: '' }]
+    const newBlocks: Block[] = tplBlocks.map((b, idx) => ({
+      id: uid(), pageId: p.id, parentId: null,
+      type: b.type as Block['type'], content: b.content ?? '',
+      properties: { ...(b.properties ?? {}) },
+      position: idx, createdAt: now, updatedAt: now,
+    }))
+    set(s => ({ pages: [...s.pages, p], blocks: [...s.blocks, ...newBlocks], selectedPageId: p.id }))
+    get().addActivity('page_created', p.id, 'page')
+    persist(get())
+    return p
+  },
+  movePage: (id, newParentId) => {
+    const pages = get().pages
+    const page = pages.find(p => p.id === id)
+    if (!page) return false
+    if (newParentId === id) return false
+    if (newParentId) {
+      const target = pages.find(p => p.id === newParentId)
+      if (!target || target.isTrashed) return false
+      // prevent cycles: new parent must not be a descendant of the moved page
+      let cursor: Page | undefined = target
+      const seen = new Set<string>()
+      while (cursor && cursor.parentId) {
+        if (seen.has(cursor.id)) break
+        seen.add(cursor.id)
+        if (cursor.parentId === id) return false
+        cursor = pages.find(p => p.id === cursor!.parentId)
+      }
+    }
+    if ((page.parentId ?? null) === (newParentId ?? null)) return true
+    set(s => ({ pages: s.pages.map(p => p.id === id ? { ...p, parentId: newParentId ?? null, updatedAt: new Date().toISOString() } : p) }))
+    get().addActivity('page_updated', id, 'page')
+    persist(get())
+    return true
   },
   updatePage: (id, patch) => {
     set(s => ({ pages: s.pages.map(p => p.id===id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p)}))
@@ -183,6 +238,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().addActivity('block_created', b.id, 'block')
     persist(get())
     return b
+  },
+  restorePageBlocks: (pageId, snapshot) => {
+    const now = new Date().toISOString()
+    const normalized = [...snapshot]
+      .sort((a, b) => a.position - b.position)
+      .map((b, i) => ({ ...b, pageId, position: i, updatedAt: now }))
+    set(s => ({
+      blocks: [...s.blocks.filter(b => b.pageId !== pageId), ...normalized],
+      historyRev: s.historyRev + 1,
+    }))
+    persist(get())
   },
   updateBlock: (id, patch) => {
     set(s=> ({ blocks: s.blocks.map(b=> b.id===id?{...b, ...patch, updatedAt: new Date().toISOString()}:b)}))
@@ -226,6 +292,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().addActivity('record_created', r.id, 'record')
     persist(get())
     return r
+  },
+  importRecords: (dbId, rows) => {
+    if (rows.length === 0) return []
+    const base = get().records.filter(x => x.databaseId === dbId).length
+    const now = new Date().toISOString()
+    const userId = get().user.id
+    const created: DatabaseRecord[] = rows.map((props, i) => ({
+      id: uid(), databaseId: dbId, properties: props,
+      position: base + i, createdBy: userId, createdAt: now, updatedAt: now,
+    }))
+    set(s => ({ records: [...s.records, ...created] }))
+    get().addActivity('record_created', dbId, 'database')
+    persist(get())
+    return created
   },
   updateRecord: (id, props) => {
     const rec = get().records.find(r=> r.id===id)

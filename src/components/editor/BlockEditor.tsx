@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useAppStore } from '@/stores/appStore'
 import { BlockRegistry, detectMarkdownShortcut, stripMarkdownPrefix } from '@/lib/blockRegistry'
 import type { Block } from '@/lib/types'
-import { GripVertical, Trash2, Copy, Palette, MessageSquare, ArrowUp, ArrowDown, Image as ImageIcon, Code, Quote, Table as TableIcon, Bookmark, ChevronDown, Timer, Repeat2, BarChart3, Calendar, CheckSquare, Hash, Type, MoreHorizontal, Settings, SlidersHorizontal } from 'lucide-react'
+import { GripVertical, Trash2, Copy, Palette, MessageSquare, ArrowUp, ArrowDown, Image as ImageIcon, Code, Quote, Table as TableIcon, Bookmark, ChevronDown, Timer, Repeat2, BarChart3, Calendar, CheckSquare, Hash, Type, MoreHorizontal, Settings, SlidersHorizontal, Undo2, Redo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Modal } from '@/components/ui/modal'
 import { Button } from '@/components/ui/button'
@@ -13,10 +13,12 @@ import { DatabaseViews } from '@/components/database/DatabaseViews'
 import { EmojiPicker } from '@/components/ui/emojiPicker'
 import { PageIconInline } from '@/components/ui/pageIcon'
 import { FontPicker } from '@/components/ui/fontPicker'
+import { useBlockHistory } from '@/hooks/useBlockHistory'
 
 export function BlockEditor({ pageId }: { pageId: string }) {
   const { blocks, addBlock, updateBlock, deleteBlock, moveBlock, duplicateBlock } = useAppStore()
   const pageBlocks = blocks.filter(b=>b.pageId===pageId).sort((a,b)=> a.position-b.position)
+  const { canUndo, canRedo, undo, redo } = useBlockHistory(pageId, pageBlocks)
   const [slashFor, setSlashFor] = useState<string | null>(null)
   const [slashQuery, setSlashQuery] = useState('')
   const [dragId, setDragId] = useState<string | null>(null)
@@ -26,9 +28,32 @@ export function BlockEditor({ pageId }: { pageId: string }) {
     setTimeout(()=> document.getElementById(`block-${b.id}`)?.focus(), 30)
   }
 
+  const historyBar = (
+    <div className="flex items-center gap-1 pb-2">
+      <button
+        onClick={undo}
+        disabled={!canUndo}
+        title="Undo (Ctrl+Z)"
+        className="p-1.5 rounded-lg border bg-card text-xs flex items-center gap-1 disabled:opacity-40 hover:bg-accent"
+      >
+        <Undo2 size={13} /> Undo
+      </button>
+      <button
+        onClick={redo}
+        disabled={!canRedo}
+        title="Redo (Ctrl+Shift+Z)"
+        className="p-1.5 rounded-lg border bg-card text-xs flex items-center gap-1 disabled:opacity-40 hover:bg-accent"
+      >
+        <Redo2 size={13} /> Redo
+      </button>
+      <span className="text-[11px] text-muted-foreground ml-1 hidden sm:inline">Ctrl+Z / Ctrl+Shift+Z</span>
+    </div>
+  )
+
   if (pageBlocks.length===0) {
     return (
       <div className="py-8">
+        {historyBar}
         <EmptyBlockState onClick={()=> handleNew(0)} />
         <button onClick={()=> handleNew(0)} className="mt-4 w-full py-2 rounded-xl border border-dashed text-sm text-muted-foreground hover:bg-accent">+ Add first block</button>
       </div>
@@ -37,6 +62,7 @@ export function BlockEditor({ pageId }: { pageId: string }) {
 
   return (
     <div className="space-y-1 py-2">
+      {historyBar}
       {pageBlocks.map((block, idx)=> (
         <BlockRow
           key={block.id}
@@ -162,6 +188,35 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
       }
     }
   }, [block.id, block.type])
+
+  // Undo/redo restores the store while this block may still be focused.
+  // The effects above intentionally skip syncing when focused (to avoid
+  // reverse-typing), so without this the editor would keep showing stale
+  // DOM and undo would *look* broken. historyRev only changes on
+  // restorePageBlocks, never during normal typing, so this can't fight
+  // the user mid-keystroke.
+  const historyRev = useAppStore(s => s.historyRev)
+  useEffect(()=> {
+    if (!historyRev) return
+    const el = contentRef.current
+    if (!el) return
+    const target = block.content || ''
+    if (el.innerHTML !== target) {
+      el.innerHTML = target
+      if (document.activeElement === el) {
+        el.focus()
+        try {
+          const range = document.createRange()
+          range.selectNodeContents(el)
+          range.collapse(false)
+          const sel = window.getSelection()
+          sel?.removeAllRanges()
+          sel?.addRange(range)
+        } catch {}
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyRev])
 
   // close drag menu on outside click
   useEffect(()=> {

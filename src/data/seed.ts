@@ -125,11 +125,123 @@ export function generateSeed(workspaceId: string, userId: string) {
   return { pages, blocks, databases, records }
 }
 
-export const templatesSeed = [
-  { name: 'Project', category: 'Work', icon: '◈', description: 'Kick off a new project with goals and tasks' },
-  { name: 'Meeting Notes', category: 'Work', icon: '◐', description: 'Structured notes with action items' },
-  { name: 'Weekly Review', category: 'Personal', icon: '◎', description: 'Reflect and plan the week ahead' },
-  { name: 'Product Roadmap', category: 'Product', icon: '⬣', description: 'Timeline and milestones' },
-  { name: 'Bug Tracker', category: 'Engineering', icon: '⚙', description: 'Track and triage bugs' },
-  { name: 'Content Calendar', category: 'Marketing', icon: '✎', description: 'Plan content across channels' },
+export interface TemplateSeedBlock {
+  type: string
+  content: string
+  properties?: Record<string, unknown>
+}
+
+export interface TemplateSeed {
+  name: string
+  category: string
+  icon: string
+  description: string
+  blocks: TemplateSeedBlock[]
+}
+
+export const templatesSeed: TemplateSeed[] = [
+  {
+    name: 'Project',
+    category: 'Work',
+    icon: '◈',
+    description: 'Kick off a new project with goals and tasks',
+    blocks: [
+      { type: 'heading1', content: 'Project Overview' },
+      { type: 'paragraph', content: 'Describe the goal, scope, and success criteria for this project.' },
+      { type: 'callout', content: '💡 Tip: keep the goal to one sentence so the team can repeat it.' },
+      { type: 'heading2', content: 'Goals' },
+      { type: 'bulleted_list', content: 'Goal 1 — what does success look like?' },
+      { type: 'bulleted_list', content: 'Goal 2 — how will we measure it?' },
+      { type: 'heading2', content: 'Tasks' },
+      { type: 'todo', content: 'Define scope and milestones' },
+      { type: 'todo', content: 'Assign owners and due dates' },
+      { type: 'todo', content: 'Schedule kickoff meeting' },
+      { type: 'divider', content: '' },
+      { type: 'quote', content: 'Write the press release first, then plan backwards.' },
+    ],
+  },
+  {
+    name: 'Meeting Notes',
+    category: 'Work',
+    icon: '◐',
+    description: 'Structured notes with action items',
+    blocks: [
+      { type: 'heading1', content: 'Meeting Notes' },
+      { type: 'paragraph', content: 'Date: today • Attendees: add names • Link: add agenda link' },
+      { type: 'heading2', content: 'Agenda' },
+      { type: 'bulleted_list', content: 'Topic 1' },
+      { type: 'bulleted_list', content: 'Topic 2' },
+      { type: 'heading2', content: 'Decisions' },
+      { type: 'bulleted_list', content: 'Decision 1 — who decided, why' },
+      { type: 'heading2', content: 'Action items' },
+      { type: 'todo', content: 'Follow up on open question (@owner)' },
+      { type: 'todo', content: 'Share notes with the team' },
+    ],
+  },
+  {
+    name: 'Weekly Review',
+    category: 'Personal',
+    icon: '◎',
+    description: 'Reflect and plan the week ahead',
+    blocks: [
+      { type: 'heading1', content: 'Weekly Review' },
+      { type: 'heading2', content: 'Wins' },
+      { type: 'bulleted_list', content: 'What went well this week?' },
+      { type: 'heading2', content: 'Lessons' },
+      { type: 'bulleted_list', content: 'What would I do differently?' },
+      { type: 'heading2', content: 'Next week' },
+      { type: 'todo', content: 'Top priority 1' },
+      { type: 'todo', content: 'Top priority 2' },
+      { type: 'todo', content: 'Top priority 3' },
+    ],
+  },
+  {
+    name: 'Product Roadmap',
+    category: 'Product',
+    icon: '⬣',
+    description: 'Timeline and milestones',
+    blocks: [
+      { type: 'heading1', content: 'Roadmap' },
+      { type: 'paragraph', content: 'Where are we going and why? Link strategy docs here.' },
+      { type: 'heading2', content: 'Now' },
+      { type: 'bulleted_list', content: 'Milestone 1 — scope + owner' },
+      { type: 'heading2', content: 'Next' },
+      { type: 'bulleted_list', content: 'Milestone 2 — scope + owner' },
+      { type: 'heading2', content: 'Later' },
+      { type: 'bulleted_list', content: 'Big bet — hypothesis to validate' },
+    ],
+  },
+  {
+    name: 'Bug Tracker',
+    category: 'Engineering',
+    icon: '⚙',
+    description: 'Track and triage bugs',
+    blocks: [
+      { type: 'heading1', content: 'Bug Triage' },
+      { type: 'heading2', content: 'How to report' },
+      { type: 'bulleted_list', content: 'Steps to reproduce' },
+      { type: 'bulleted_list', content: 'Expected vs actual behavior' },
+      { type: 'bulleted_list', content: 'Environment (OS, browser, version)' },
+      { type: 'heading2', content: 'Triage queue' },
+      { type: 'todo', content: 'Reproduce reported bug' },
+      { type: 'todo', content: 'Assign severity + owner' },
+      { type: 'code', content: '// paste stack trace or logs here' },
+    ],
+  },
+  {
+    name: 'Content Calendar',
+    category: 'Marketing',
+    icon: '✎',
+    description: 'Plan content across channels',
+    blocks: [
+      { type: 'heading1', content: 'Content Calendar' },
+      { type: 'paragraph', content: 'Theme for this period: write it in one line.' },
+      { type: 'heading2', content: 'Pipeline' },
+      { type: 'todo', content: 'Draft post 1 (channel + date)' },
+      { type: 'todo', content: 'Draft post 2 (channel + date)' },
+      { type: 'heading2', content: 'Ideas' },
+      { type: 'bulleted_list', content: 'Idea 1 — angle + audience' },
+      { type: 'bulleted_list', content: 'Idea 2 — angle + audience' },
+    ],
+  },
 ]

@@ -89,6 +89,7 @@ function BottomNav({ route, setRoute }: { route:string, setRoute:(r:any)=>void }
 }
 
 function Templates() {
+  const createPageFromTemplate = useAppStore(s => s.createPageFromTemplate)
   return (
     <div className="max-w-[1000px] mx-auto p-6 md:p-8 space-y-6">
       <h1 className="text-2xl font-bold">Templates</h1>
@@ -99,8 +100,11 @@ function Templates() {
             <div className="w-10 h-10 rounded-xl bg-violet-500/10 grid place-items-center text-lg">{t.icon}</div>
             <div className="font-semibold mt-3">{t.name}</div>
             <div className="text-xs text-muted-foreground mt-1">{t.description}</div>
-            <div className="text-xs border rounded-full px-2 py-1 inline-block mt-3">{t.category}</div>
-            <Button size="sm" className="w-full mt-4" onClick={()=> useAppStore.getState().createPage(t.name, null, t.icon)}>Use template</Button>
+            <div className="flex items-center gap-2 mt-3">
+              <div className="text-xs border rounded-full px-2 py-1 inline-block">{t.category}</div>
+              <div className="text-[11px] text-muted-foreground ml-auto">{t.blocks.length} blocks</div>
+            </div>
+            <Button size="sm" className="w-full mt-4" onClick={()=> createPageFromTemplate(t.name)}>Use template</Button>
           </div>
         ))}
       </div>

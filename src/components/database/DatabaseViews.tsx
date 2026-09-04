@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useAppStore } from '@/stores/appStore'
 import type { Database, DatabaseRecord, FilterGroup, FilterCondition } from '@/lib/types'
 import { evaluateFilter, sortRecords, groupRecords } from '@/lib/databaseEngine'
@@ -8,12 +8,13 @@ import { ColumnHeaderMenu, AddPropertyDialog, EditPropertyDialog } from '@/compo
 import { RecordDetailModal } from '@/components/database/RecordDetail'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, Filter, ArrowUpDown, ArrowUp, ArrowDown, ArrowUpRight, Eye, EyeOff, MoreHorizontal, Calendar, LayoutGrid, List, Table as TableIcon, Kanban, Clock, GanttChart, Settings, SlidersHorizontal, X, ChevronDown, Copy, Trash2, GripVertical } from 'lucide-react'
+import { Plus, Filter, ArrowUpDown, ArrowUp, ArrowDown, ArrowUpRight, Eye, EyeOff, MoreHorizontal, Calendar, LayoutGrid, List, Table as TableIcon, Kanban, Clock, GanttChart, Settings, SlidersHorizontal, X, ChevronDown, Copy, Trash2, GripVertical, Download, Upload } from 'lucide-react'
 import { Modal } from '@/components/ui/modal'
 import { cn } from '@/lib/utils'
+import { recordsToCsv, recordsToJson, parseCsv, parseCsvCell, mapCsvToRecords, downloadFile, slugify } from '@/lib/csvUtils'
 
 export function DatabaseViews({ database, compact }: { database: Database, compact?: boolean }) {
-  const { records, createRecord, updateRecord, deleteRecord, updateProperty } = useAppStore()
+  const { records, createRecord, importRecords, updateRecord, deleteRecord, updateProperty } = useAppStore()
   const dbRecords = records.filter(r=> r.databaseId===database.id)
   const [viewType, setViewType] = useState(database.views[0]?.type || 'table')
   const view = database.views.find(v=> v.type===viewType) || database.views[0]
@@ -26,6 +27,8 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set())
   const [showControls, setShowControls] = useState(false)
   const [openRecordId, setOpenRecordId] = useState<string | null>(null)
+  const [ioMessage, setIoMessage] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const filtered = useMemo(()=> {
     let recs = dbRecords
@@ -65,6 +68,79 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
     })
   }
 
+  const slug = slugify(database.name)
+  const handleExportCsv = () => {
+    try {
+      const csv = recordsToCsv(database, filtered)
+      downloadFile(`${slug}-${filtered.length}-rows.csv`, csv, 'text/csv')
+      setIoMessage(`Exported ${filtered.length} row(s) to CSV (current filter applied).`)
+    } catch (e) {
+      setIoMessage(`Export failed: ${String((e as Error)?.message || e)}`)
+    }
+  }
+  const handleExportJson = () => {
+    try {
+      const json = recordsToJson(database, filtered)
+      downloadFile(`${slug}-${filtered.length}-rows.json`, json, 'application/json')
+      setIoMessage(`Exported ${filtered.length} row(s) to JSON.`)
+    } catch (e) {
+      setIoMessage(`Export failed: ${String((e as Error)?.message || e)}`)
+    }
+  }
+  const handleImportFile = async (file: File) => {
+    try {
+      const text = await file.text()
+      if (!text.trim()) {
+        setIoMessage('Import failed: file is empty.')
+        return
+      }
+      let rows: Record<string, unknown>[] = []
+      let note = ''
+      if (/\.json$/i.test(file.name) || text.trim().startsWith('{') || text.trim().startsWith('[')) {
+        // JSON: accept our export shape {rows:[{Name:...}]} or a plain array
+        const parsed = JSON.parse(text)
+        const arr: any[] = Array.isArray(parsed) ? parsed : parsed.rows || []
+        const byName = new Map(database.properties.map(p => [p.name.trim().toLowerCase(), p]))
+        rows = arr.map((obj: any) => {
+          const props: Record<string, unknown> = {}
+          database.properties.forEach(p => {
+            props[p.id] = propertyDefFor(p.type).defaultValue(p)
+          })
+          Object.entries(obj || {}).forEach(([k, v]) => {
+            if (k === '_id') return
+            const prop = byName.get(String(k).trim().toLowerCase())
+            if (!prop) return
+            if (['formula', 'rollup', 'created_time', 'updated_time'].includes(prop.type)) return
+            props[prop.id] = typeof v === 'string' ? parseCsvCell(prop, v) : (v as unknown)
+          })
+          const first = database.properties[0]
+          if (first && !props[first.id]) props[first.id] = 'Untitled'
+          return props
+        })
+        note = `from JSON keys (${Object.keys(arr[0] || {}).filter(k => k !== '_id').slice(0, 4).join(', ') || 'no keys'})`
+      } else {
+        const parsed = parseCsv(text)
+        if (parsed.headers.length === 0) {
+          setIoMessage('Import failed: no header row found. First row should be property names.')
+          return
+        }
+        const mapped = mapCsvToRecords(database, parsed)
+        rows = mapped.records
+        note = `columns matched: ${mapped.matched.join(', ') || 'none'}${mapped.unmatched.length ? ` • ignored: ${mapped.unmatched.join(', ')}` : ''}`
+      }
+      if (rows.length === 0) {
+        setIoMessage('Import finished: no data rows found.')
+        return
+      }
+      const created = importRecords(database.id, rows)
+      setIoMessage(`Imported ${created.length} row(s) ${note}.`)
+    } catch (e) {
+      setIoMessage(`Import failed: ${String((e as Error)?.message || e)}`)
+    } finally {
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
   return (
     <div className={cn("space-y-3 w-full max-w-full", compact && "space-y-2")}>
       <div className={cn("flex flex-wrap items-center gap-2 w-full max-w-full relative", compact && "gap-1 px-1")}>
@@ -90,6 +166,20 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
             </span>
           )}
           <Button size="sm" className={cn(compact && "h-7 px-2 text-xs")} onClick={handleAdd}><Plus size={14} className={compact ? "" : "mr-1"}/> {compact ? "+" : "New"}</Button>
+          <button
+            onClick={handleExportCsv}
+            className={cn("p-2 rounded-xl border bg-card hover:bg-accent shadow-sm", compact && "p-1.5")}
+            title={`Export ${filtered.length} visible rows to CSV`}
+          >
+            <Download size={14}/>
+          </button>
+          <button
+            onClick={()=> fileRef.current?.click()}
+            className={cn("p-2 rounded-xl border bg-card hover:bg-accent shadow-sm", compact && "p-1.5")}
+            title="Import CSV or JSON"
+          >
+            <Upload size={14}/>
+          </button>
           <button
             onClick={()=> setShowControls(!showControls)}
             className={cn("p-2 rounded-xl border shadow-sm flex items-center gap-1.5 text-xs font-medium transition-colors", showControls ? "bg-accent border-violet-500/20" : "bg-card hover:bg-accent", compact && "p-1.5")}
@@ -152,6 +242,15 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
                   </div>
                 )}
               </div>
+              <div className="pt-2 border-t space-y-2">
+                <div className="text-[11px] font-medium text-muted-foreground">Import / Export — exports respect current filter ({filtered.length} rows)</div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <Button variant="outline" size="sm" className="text-xs" onClick={handleExportCsv}><Download size={12} className="mr-1"/> CSV</Button>
+                  <Button variant="outline" size="sm" className="text-xs" onClick={handleExportJson}><Download size={12} className="mr-1"/> JSON</Button>
+                  <Button variant="outline" size="sm" className="text-xs" onClick={()=> fileRef.current?.click()}><Upload size={12} className="mr-1"/> Import</Button>
+                </div>
+                <div className="text-[11px] text-muted-foreground">CSV header must match property names. Multi-select uses <span className="font-mono">a;b</span>. Matches are case-insensitive.</div>
+              </div>
             </div>
             <div className="pt-2 border-t flex justify-end">
               <Button size="sm" variant="ghost" onClick={()=> setShowControls(false)}>Done</Button>
@@ -159,6 +258,13 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
           </div>
         )}
       </div>
+
+      {ioMessage && (
+        <div className="flex items-start gap-2 p-2.5 rounded-xl bg-violet-500/10 border border-violet-500/20 text-xs">
+          <span className="flex-1">{ioMessage}</span>
+          <button onClick={()=> setIoMessage(null)} className="p-0.5 hover:bg-accent rounded"><X size={13}/></button>
+        </div>
+      )}
 
       {filterGroup && (
         <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs">
@@ -189,6 +295,16 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
       {showFilter && <FilterModal database={database} initial={filterGroup} onApply={g=> { setFilterGroup(g); setShowFilter(false)}} onClose={()=> setShowFilter(false)} />}
       {showSort && <SortModal database={database} current={sort} onApply={s=> { setSort(s); setShowSort(false)}} onClose={()=> setShowSort(false)} />}
       {openRecordId && <RecordDetailModal databaseId={database.id} recordId={openRecordId} onClose={()=> setOpenRecordId(null)} />}
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".csv,.json,text/csv,application/json"
+        className="hidden"
+        onChange={e => {
+          const f = e.target.files?.[0]
+          if (f) handleImportFile(f)
+        }}
+      />
     </div>
   )
 }
