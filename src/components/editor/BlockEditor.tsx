@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useAppStore } from '@/stores/appStore'
 import { BlockRegistry, detectMarkdownShortcut, stripMarkdownPrefix } from '@/lib/blockRegistry'
 import type { Block } from '@/lib/types'
-import { GripVertical, Trash2, Copy, Palette, MessageSquare, ArrowUp, ArrowDown, Image as ImageIcon, Code, Quote, Table as TableIcon, Bookmark, ChevronDown, Timer, Repeat2, BarChart3, Calendar, CheckSquare, Hash, Type, MoreHorizontal, Settings, SlidersHorizontal, Undo2, Redo2 } from 'lucide-react'
+import { GripVertical, Plus, Trash2, Copy, Palette, MessageSquare, ArrowUp, ArrowDown, Image as ImageIcon, Code, Quote, Table as TableIcon, Bookmark, ChevronDown, Timer, Repeat2, BarChart3, Calendar, CheckSquare, Hash, Type, MoreHorizontal, Settings, SlidersHorizontal, Undo2, Redo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Modal } from '@/components/ui/modal'
 import { Button } from '@/components/ui/button'
@@ -84,6 +84,7 @@ export function BlockEditor({ pageId }: { pageId: string }) {
             if (dragIdx>-1 && targetIdx>-1) moveBlock(dragId, targetIdx)
           }}
           onEnter={(nextType)=> handleNew(idx+1, nextType as any || 'paragraph')}
+          onAddBelow={()=> handleNew(idx+1, 'paragraph')}
           onMarkdown={(newType, newContent)=> updateBlock(block.id, { type: newType as any, content: newContent })}
         />
       ))}
@@ -104,10 +105,10 @@ function EmptyBlockState({ onClick }: { onClick: ()=>void }) {
   )
 }
 
-function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, slashOpen, slashQuery, closeSlash, dragId, setDragId, onDrop, onEnter, onMarkdown }: {
+function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, slashOpen, slashQuery, closeSlash, dragId, setDragId, onDrop, onEnter, onAddBelow, onMarkdown }: {
   block: Block, index:number, onChange:(p:Partial<Block>)=>void, onDelete:()=>void, onDuplicate:()=>void, onMove:(d:'up'|'down')=>void,
   onSlash:(q:string)=>void, slashOpen:boolean, slashQuery:string, closeSlash:()=>void,
-  dragId:string|null, setDragId:(id:string|null)=>void, onDrop:(a:string,b:string)=>void, onEnter:(nextType?:string)=>void, onMarkdown:(t:string,c:string)=>void
+  dragId:string|null, setDragId:(id:string|null)=>void, onDrop:(a:string,b:string)=>void, onEnter:(nextType?:string)=>void, onAddBelow:()=>void, onMarkdown:(t:string,c:string)=>void
 }) {
   const contentRef = useRef<HTMLDivElement>(null)
   const [focused, setFocused] = useState(false)
@@ -353,9 +354,18 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
   ]
 
   // helper to render drag-handle menu (full width pattern)
+  // Left gutter: [+] adds a new empty block below this one, [grip] drag/reorder + options
   const renderDragMenu = () => (
     <>
-      <div className="absolute left-1 top-1.5 z-10 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="absolute left-1 top-1.5 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 max-sm:opacity-100 transition-opacity">
+        <button
+          onClick={(e)=> { e.stopPropagation(); onAddBelow() }}
+          className="p-1.5 rounded-lg border shadow-sm bg-card hover:bg-accent hover:text-violet-600 cursor-pointer flex items-center justify-center"
+          title="Add block below"
+          aria-label="Add block below"
+        >
+          <Plus size={14} />
+        </button>
         <button
           data-drag-handle
           onClick={(e)=> { e.stopPropagation(); setActionsMenuOpen(v=>!v) }}
@@ -447,7 +457,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         {renderDragMenu()}
         {renderCommentHover()}
         <div className="w-full min-w-0 relative flex items-center gap-2 py-1">
-          <input type="checkbox" checked={!!block.properties.checked} onChange={e=> onChange({ properties:{ ...block.properties, checked:e.target.checked }})} className="rounded w-4 h-4 shrink-0 ml-1 sm:ml-7" />
+          <input type="checkbox" checked={!!block.properties.checked} onChange={e=> onChange({ properties:{ ...block.properties, checked:e.target.checked }})} className="rounded w-4 h-4 shrink-0 ml-14 sm:ml-16" />
           <div
             id={`block-${block.id}`}
             ref={contentRef}
