@@ -357,10 +357,10 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
   // Left gutter: [+] adds a new empty block below this one, [grip] drag/reorder + options
   const renderDragMenu = () => (
     <>
-      <div className="absolute left-1 top-1.5 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 max-sm:opacity-100 transition-opacity">
+      <div className="absolute left-0 top-1 z-10 flex -translate-x-full flex-col gap-1 pr-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 max-sm:opacity-100 transition-opacity">
         <button
           onClick={(e)=> { e.stopPropagation(); onAddBelow() }}
-          className="p-1.5 rounded-lg border shadow-sm bg-card hover:bg-accent hover:text-violet-600 cursor-pointer flex items-center justify-center"
+          className="p-0.5 sm:p-1 rounded-lg border shadow-sm bg-card hover:bg-accent hover:text-violet-600 cursor-pointer flex items-center justify-center"
           title="Add block below"
           aria-label="Add block below"
         >
@@ -369,14 +369,14 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         <button
           data-drag-handle
           onClick={(e)=> { e.stopPropagation(); setActionsMenuOpen(v=>!v) }}
-          className={cn("p-1.5 rounded-lg border shadow-sm bg-card hover:bg-accent cursor-grab flex items-center justify-center", actionsMenuOpen && "opacity-100 bg-accent border-violet-200")}
+          className={cn("p-0.5 sm:p-1 rounded-lg border shadow-sm bg-card hover:bg-accent cursor-grab flex items-center justify-center", actionsMenuOpen && "opacity-100 bg-accent border-violet-200")}
           title="Click for options • Drag to reorder"
         >
           <GripVertical size={14} />
         </button>
       </div>
       {actionsMenuOpen && (
-        <div ref={menuRef} className="absolute left-1 top-9 z-20 bg-popover border rounded-2xl shadow-xl p-3 w-[340px] max-w-[92vw] animate-in fade-in">
+        <div ref={menuRef} className="absolute left-0 top-12 z-20 bg-popover border rounded-2xl shadow-xl p-3 w-[340px] max-w-[92vw] animate-in fade-in">
           <div className="px-1 pb-2 text-[10px] font-semibold tracking-widest text-muted-foreground uppercase flex items-center justify-between">
             <span className="flex items-center gap-1.5"><Settings size={12}/> Block options</span>
             <button onClick={()=> setActionsMenuOpen(false)} className="p-1 hover:bg-accent rounded-lg text-xs">✕</button>
@@ -457,7 +457,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         {renderDragMenu()}
         {renderCommentHover()}
         <div className="w-full min-w-0 relative flex items-center gap-2 py-1">
-          <input type="checkbox" checked={!!block.properties.checked} onChange={e=> onChange({ properties:{ ...block.properties, checked:e.target.checked }})} className="rounded w-4 h-4 shrink-0 ml-14 sm:ml-16" />
+          <input type="checkbox" checked={!!block.properties.checked} onChange={e=> onChange({ properties:{ ...block.properties, checked:e.target.checked }})} className="rounded w-4 h-4 shrink-0" />
           <div
             id={`block-${block.id}`}
             ref={contentRef}
