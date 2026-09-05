@@ -18,7 +18,7 @@ async function main() {
   const { default: pg } = await import('pg')
   const pool = new pg.Pool({ connectionString: url })
   try {
-    for (const file of ['001_initial.sql', '002_db_performance.sql']) {
+    for (const file of ['001_initial.sql', '002_db_performance.sql', '002_page_theme.sql']) {
       const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', file), 'utf-8')
       console.log(`Applying ${file}...`)
       await pool.query(sql)
