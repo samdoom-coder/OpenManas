@@ -15,7 +15,7 @@ import { KnowledgeGraphView, buildGraph } from '@/components/features/KnowledgeG
 import { FileManager } from '@/components/features/FileManager'
 
 export default function App() {
-  const { selectedPageId, selectedDatabaseId, pages, databases, setSelectedPage, setSelectedDatabase } = useAppStore()
+  const { selectedPageId, selectedDatabaseId, setSelectedPage, setSelectedDatabase } = useAppStore()
   const [route, setRoute] = useState<'dashboard'|'page'|'database'|'settings'|'templates'|'trash'|'files'|'graph'|'shared'>('dashboard')
   const [showOnboarding, setShowOnboarding] = useState(()=> !localStorage.getItem('nexus_onboarded'))
 
@@ -57,7 +57,7 @@ export default function App() {
           {route==='trash' && <Trash />}
           {route==='shared' && <Shared />}
           {route==='files' && <div className="max-w-[900px] mx-auto p-6 md:p-8"><h1 className="text-2xl font-bold mb-4">Files</h1><FileManager/></div>}
-          {route==='graph' && <div className="max-w-[1000px] mx-auto p-6 md:p-8"><h1 className="text-2xl font-bold mb-4">Knowledge Graph</h1><KnowledgeGraphView {...buildGraph(pages, databases)}/></div>}
+          {route==='graph' && <GraphRoute />}
         </div>
         {saving && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-popover border shadow-lg rounded-full px-4 py-1.5 text-xs">Saving...</div>}
       </div>
@@ -72,6 +72,27 @@ export default function App() {
       </div>
 
       <BottomNav route={route} setRoute={setRoute} />
+    </div>
+  )
+}
+
+function GraphRoute() {
+  const { pages, databases, blocks, records, setSelectedPage, setSelectedDatabase } = useAppStore()
+  const graph = buildGraph(pages, databases, blocks, records)
+  return (
+    <div className="max-w-[1100px] mx-auto p-6 md:p-8">
+      <h1 className="text-2xl font-bold mb-4">Knowledge Graph</h1>
+      <KnowledgeGraphView
+        {...graph}
+        onSelectNode={(n) => {
+          if (n.type === 'page') setSelectedPage(n.id)
+          else if (n.type === 'database') setSelectedDatabase(n.id)
+          else if (n.type === 'record') {
+            const rec = records.find((r) => r.id === n.id)
+            if (rec) setSelectedDatabase(rec.databaseId)
+          }
+        }}
+      />
     </div>
   )
 }

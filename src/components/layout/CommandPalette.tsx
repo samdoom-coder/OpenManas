@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useAppStore } from '@/stores/appStore'
 import { BlockRegistry } from '@/lib/blockRegistry'
+import { buildDocs, semanticSearchDocs } from '@/lib/embeddings'
 import { Search, FileText, Database, Plus, Trash2, Star, Sparkles, Settings, LayoutDashboard } from 'lucide-react'
 
 export function CommandPalette() {
@@ -75,13 +76,28 @@ export function CommandPalette() {
 export function GlobalSearch() {
   const { searchOpen, setSearchOpen, pages, blocks, records, setSelectedPage, setSelectedDatabase } = useAppStore()
   const [q, setQ] = useState('')
+  const [mode, setMode] = useState<'keyword' | 'semantic'>('keyword')
   useEffect(()=> {
     const h = (e:KeyboardEvent)=> { if ((e.ctrlKey||e.metaKey)&& e.key.toLowerCase()==='k') { e.preventDefault(); setSearchOpen(!searchOpen) } }
     window.addEventListener('keydown', h); return ()=> window.removeEventListener('keydown', h)
   }, [searchOpen])
+  const docs = useMemo(()=> buildDocs(pages, blocks, records), [pages, blocks, records])
   if (!searchOpen) return null
   const results = (()=> {
     if (!q) return []
+    if (mode === 'semantic') {
+      return semanticSearchDocs(q, docs, 10).map(s => {
+        const action = s.kind === 'page'
+          ? ()=>{ setSelectedPage(s.id); setSearchOpen(false) }
+          : s.kind === 'block'
+            ? ()=>{ const b = blocks.find(x=> x.id===s.id); const pg = b && pages.find(p=> p.id===b.pageId); if (pg) setSelectedPage(pg.id); setSearchOpen(false) }
+            : ()=> setSearchOpen(false)
+        const snippet = s.kind === 'page'
+          ? (pages.find(p=> p.id===s.id)?.description || '')
+          : s.text.slice(0, 80)
+        return { id: s.id, title: s.title, type: s.kind[0].toUpperCase() + s.kind.slice(1), snippet, updatedAt: new Date().toISOString(), score: s.score, action }
+      })
+    }
     const lower=q.toLowerCase()
     const out: any[] = []
     pages.filter(p=> p.title.toLowerCase().includes(lower)).slice(0,5).forEach(p=> out.push({ id:p.id, title:p.title, type:'Page', snippet: p.description||'', updatedAt:p.updatedAt, action:()=>{ setSelectedPage(p.id); setSearchOpen(false)}}))
@@ -95,16 +111,22 @@ export function GlobalSearch() {
       <div className="relative w-full max-w-[640px] mx-4 bg-popover border rounded-2xl shadow-2xl overflow-hidden">
         <div className="flex items-center gap-3 px-4 h-14 border-b">
           <Search size={18} className="text-muted-foreground"/>
-          <input autoFocus value={q} onChange={e=> setQ(e.target.value)} placeholder="Search pages, blocks, records..." className="flex-1 bg-transparent outline-none"/>
+          <input autoFocus value={q} onChange={e=> setQ(e.target.value)} placeholder={mode==='semantic' ? 'Describe what you need…' : 'Search pages, blocks, records...'} className="flex-1 bg-transparent outline-none"/>
+          <div className="flex rounded-full border text-[11px] overflow-hidden shrink-0" role="tablist" aria-label="Search mode">
+            {(['keyword', 'semantic'] as const).map(m=> (
+              <button key={m} onClick={()=> setMode(m)} className={`px-2.5 py-1 capitalize ${mode===m ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>{m}</button>
+            ))}
+          </div>
         </div>
         <div className="p-2 max-h-[400px] overflow-auto">
-          {results.length===0 && q && <div className="p-8 text-center text-sm text-muted-foreground">No results</div>}
-          {!q && <div className="p-8 text-center text-sm text-muted-foreground">Type to search across workspace</div>}
+          {results.length===0 && q && <div className="p-8 text-center text-sm text-muted-foreground">No results{mode==='semantic' ? ' — try different words' : ''}</div>}
+          {!q && <div className="p-8 text-center text-sm text-muted-foreground">{mode==='semantic' ? 'Semantic search finds related content even without exact words' : 'Type to search across workspace'}</div>}
           {results.map(r=> (
             <button key={r.id} onClick={r.action} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-accent">
               <div className="flex items-center gap-2">
                 <span className="text-xs px-1.5 py-0.5 rounded bg-secondary">{r.type}</span>
                 <span className="font-medium text-sm truncate">{r.title}</span>
+                {typeof r.score === 'number' && <span className="text-[11px] text-violet-600">{Math.round(r.score * 100)}%</span>}
                 <span className="ml-auto text-xs text-muted-foreground">{new Date(r.updatedAt).toLocaleDateString()}</span>
               </div>
               {r.snippet && <div className="text-xs text-muted-foreground mt-1 line-clamp-1">{r.snippet}</div>}

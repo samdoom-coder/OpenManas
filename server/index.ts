@@ -1,23 +1,43 @@
 import express from 'express'
 import cors from 'cors'
+import helmet from 'helmet'
 import { z } from 'zod'
 import { v4 as uuid } from 'uuid'
 import fs from 'fs'
 import path from 'path'
 import dotenv from 'dotenv'
-import { usingPg, pgQuery, mapUser, mapWorkspace, mapPage, mapBlock, mapRecord } from './pg.js'
+import { usingPg, pgQuery, mapUser, mapWorkspace, mapPage, mapBlock, mapRecord, mapFile, mapComment, mapActivity, mapNotification } from './pg.js'
 import { hashPassword, verifyPassword, signToken, authMiddleware } from './auth.js'
+import { getCorsOrigin, generalLimiter, authLimiter, aiLimiter, validateFileInput, sanitizeFilename, MAX_BLOCK_CONTENT, MAX_COMMENT_CONTENT, MAX_AI_PROMPT, jwtSecretIsDefault } from './security.js'
 
 dotenv.config()
 
 const app = express()
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3001
 
-app.use(cors())
+app.disable('x-powered-by')
+// Trust one proxy hop (Render/Fly/Nginx) so rate limiting sees the real IP.
+app.set('trust proxy', 1)
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      // Editor embeds user images/video via blob:/data: URLs.
+      'img-src': ["'self'", 'data:', 'blob:'],
+      'media-src': ["'self'", 'data:', 'blob:'],
+    },
+  },
+}))
+app.use(cors({ origin: getCorsOrigin() }))
 app.use(express.json({ limit: '10mb' }))
+app.use(generalLimiter)
+
+if (process.env.NODE_ENV === 'production' && jwtSecretIsDefault()) {
+  console.warn('[security] JWT_SECRET is unset or default — set a long random value in production.')
+}
 
 // Persistence: Postgres when DATABASE_URL is set, else JSON file (zero-setup dev).
-// Run `npm run db:migrate` once to apply migrations/001 + 002.
+// Run `npm run db:migrate` once to apply migrations/001 + 002 + 003.
 const DB_PATH = path.join(process.cwd(), 'server', 'db.json')
 type DB = {
   users: any[]
@@ -62,7 +82,7 @@ const pageSchema = z.object({
 const blockSchema = z.object({
   pageId: z.string(),
   type: z.string(),
-  content: z.string(),
+  content: z.string().max(MAX_BLOCK_CONTENT),
   position: z.number(),
   parentId: z.string().nullable().optional(),
   properties: z.record(z.any()).optional(),
@@ -114,8 +134,8 @@ app.post('/api/pages', authStub, async (req:any, res)=> {
     try {
       const d = parsed.data
       const rows = await pgQuery(
-        'INSERT INTO pages(workspace_id, parent_id, title, icon, cover, description, properties) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-        [d.workspaceId, d.parentId ?? null, d.title, (d as any).icon ?? null, (d as any).cover ?? null, (d as any).description ?? null, JSON.stringify((d as any).properties ?? {})],
+        'INSERT INTO pages(workspace_id, parent_id, title, icon, cover, description, properties, theme) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
+        [d.workspaceId, d.parentId ?? null, d.title, (d as any).icon ?? null, (d as any).cover ?? null, (d as any).description ?? null, JSON.stringify((d as any).properties ?? {}), (d as any).theme ?? 'default'],
       )
       const page = mapPage(rows[0])
       await pgQuery('INSERT INTO activities(workspace_id, user_id, action, target_id, target_type) VALUES ($1,$2,$3,$4,$5)', [page.workspaceId, (req as any).userId, 'page_created', page.id, 'page']).catch(()=>{})
@@ -130,13 +150,13 @@ app.post('/api/pages', authStub, async (req:any, res)=> {
 app.patch('/api/pages/:id', authStub, async (req:any, res)=> {
   if (usingPg) {
     try {
-      const allowed = ['title','icon','cover','description','properties','is_favorite','is_archived','is_trashed','is_shared','share_mode','parent_id'] as const
+      const allowed = ['title','icon','cover','description','properties','theme','is_favorite','is_archived','is_trashed','is_shared','share_mode','parent_id'] as const
       const sets: string[] = []
       const vals: any[] = []
       const body = req.body as Record<string, any>
       // accept both camelCase (client) and snake_case
       const norm: Record<string, any> = {
-        title: body.title, icon: body.icon, cover: body.cover, description: body.description,
+        title: body.title, icon: body.icon, cover: body.cover, description: body.description, theme: body.theme,
         properties: body.properties !== undefined ? JSON.stringify(body.properties) : undefined,
         is_favorite: body.isFavorite ?? body.is_favorite, is_archived: body.isArchived ?? body.is_archived,
         is_trashed: body.isTrashed ?? body.is_trashed, is_shared: body.isShared ?? body.is_shared,
@@ -183,7 +203,7 @@ app.post('/api/pages/:id/duplicate', authStub, async (req, res)=> {
     try {
       const orig = await pgQuery('SELECT * FROM pages WHERE id=$1', [req.params.id])
       if (!orig[0]) return res.status(404).json({ error:'Not found' })
-      const copy = await pgQuery('INSERT INTO pages(workspace_id, parent_id, title, icon, cover, description, properties, is_favorite, is_archived, is_trashed, is_shared, share_mode, created_by, updated_by) SELECT workspace_id, parent_id, title || \' (copy)\', icon, cover, description, properties, false, false, false, false, share_mode, $2, $2 FROM pages WHERE id=$1 RETURNING *', [req.params.id, (req as any).userId])
+      const copy = await pgQuery('INSERT INTO pages(workspace_id, parent_id, title, icon, cover, description, properties, theme, is_favorite, is_archived, is_trashed, is_shared, share_mode, created_by, updated_by) SELECT workspace_id, parent_id, title || \' (copy)\', icon, cover, description, properties, theme, false, false, false, false, share_mode, $2, $2 FROM pages WHERE id=$1 RETURNING *', [req.params.id, (req as any).userId])
       await pgQuery('INSERT INTO blocks(page_id, parent_id, type, content, properties, position) SELECT $1, parent_id, type, content, properties, position FROM blocks WHERE page_id=$2 ORDER BY position', [copy[0].id, req.params.id])
       return res.json(mapPage(copy[0]))
     } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
@@ -221,6 +241,9 @@ app.post('/api/blocks', authStub, async (req,res)=> {
   res.status(201).json(block)
 })
 app.patch('/api/blocks/:id', authStub, async (req,res)=> {
+  if (typeof (req.body as any)?.content === 'string' && (req.body as any).content.length > MAX_BLOCK_CONTENT) {
+    return res.status(400).json({ error: `content too large (max ${MAX_BLOCK_CONTENT} chars)` })
+  }
   if (usingPg) {
     try {
       const b = req.body as Record<string, any>
@@ -405,37 +428,111 @@ app.delete('/api/records/:id', authStub, async (req,res)=> {
 })
 
 // Search
-app.get('/api/search', authStub, (req,res)=> {
+app.get('/api/search', authStub, async (req,res)=> {
   const q = (req.query.q as string||'').toLowerCase()
   if (!q) return res.json([])
+  if (usingPg) {
+    try {
+      const like = `%${q}%`
+      const pages = await pgQuery('SELECT id, title, updated_at FROM pages WHERE LOWER(title) LIKE $1 ORDER BY updated_at DESC LIMIT 5', [like])
+      const blocks = await pgQuery('SELECT id, content, updated_at FROM blocks WHERE LOWER(content) LIKE $1 ORDER BY updated_at DESC LIMIT 5', [like])
+      return res.json([
+        ...(pages as any[]).map(p=> ({ id: p.id, title: p.title, type:'page', breadcrumb:'', updatedAt: p.updated_at })),
+        ...(blocks as any[]).map(b=> ({ id: b.id, title: String(b.content ?? '').slice(0,40), type:'block', snippet: String(b.content ?? '').slice(0,80), updatedAt: b.updated_at })),
+      ])
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
   const pages = db.pages.filter(p=> p.title.toLowerCase().includes(q)).slice(0,5).map(p=> ({ id:p.id, title:p.title, type:'page', breadcrumb:'', updatedAt:p.updatedAt }))
   const blocks = db.blocks.filter(b=> b.content.toLowerCase().includes(q)).slice(0,5).map(b=> ({ id:b.id, title:b.content.slice(0,40), type:'block', snippet:b.content.slice(0,80), updatedAt:b.updatedAt }))
   res.json([...pages, ...blocks])
 })
 
 // Comments
-app.get('/api/comments', (req,res)=> {
+app.get('/api/comments', async (req,res)=> {
   const pageId = req.query.pageId as string
+  if (usingPg) {
+    try {
+      const rows = pageId
+        ? await pgQuery('SELECT * FROM comments WHERE page_id=$1 ORDER BY created_at', [pageId])
+        : await pgQuery('SELECT * FROM comments ORDER BY created_at DESC LIMIT 100')
+      return res.json(rows.map(mapComment))
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
   let c = db.comments
   if (pageId) c = c.filter(x=> x.pageId===pageId)
   res.json(c)
 })
-app.post('/api/comments', authStub, (req:any,res)=> {
-  const c = { id: uuid(), ...req.body, authorId: (req as any).userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+app.post('/api/comments', authStub, async (req:any,res)=> {
+  const parsed = z.object({
+    pageId: z.string().optional(),
+    blockId: z.string().optional(),
+    recordId: z.string().optional(),
+    content: z.string().min(1).max(MAX_COMMENT_CONTENT),
+    mentions: z.any().optional(),
+    parentId: z.string().nullable().optional(),
+  }).safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
+  const b = parsed.data as Record<string, any>
+  if (usingPg) {
+    try {
+      const rows = await pgQuery(
+        'INSERT INTO comments(page_id, block_id, record_id, author_id, content, mentions, parent_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+        [b.pageId ?? null, b.blockId ?? null, b.recordId ?? null, (req as any).userId, b.content, b.mentions ? JSON.stringify(b.mentions) : null, b.parentId ?? null],
+      )
+      return res.status(201).json(mapComment(rows[0]))
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  const c = { id: uuid(), ...b, authorId: (req as any).userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
   db.comments.push(c); saveDB()
   res.status(201).json(c)
 })
 
-// Files (stub)
-app.post('/api/files', authStub, (req:any,res)=> {
-  const f = { id: uuid(), filename: req.body.filename||'file', mimeType: req.body.mimeType||'application/octet-stream', size: req.body.size||0, storageKey:`files/${uuid()}`, uploadedBy: (req as any).userId, createdAt: new Date().toISOString() }
+// Files
+app.get('/api/files', authStub, async (req,res)=> {
+  const workspaceId = req.query.workspaceId as string | undefined
+  if (usingPg) {
+    try {
+      const rows = workspaceId
+        ? await pgQuery('SELECT * FROM files WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 100', [workspaceId])
+        : await pgQuery('SELECT * FROM files ORDER BY created_at DESC LIMIT 100')
+      return res.json(rows.map(mapFile))
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  let files = db.files
+  if (workspaceId) files = files.filter((f: any)=> f.workspaceId===workspaceId)
+  res.json(files)
+})
+app.post('/api/files', authStub, async (req:any,res)=> {
+  const fileError = validateFileInput(req.body)
+  if (fileError) return res.status(400).json({ error: fileError })
+  const filename = sanitizeFilename(req.body.filename)
+  const mimeType = (typeof req.body.mimeType === 'string' && req.body.mimeType ? req.body.mimeType.toLowerCase().split(';')[0].trim() : 'application/octet-stream')
+  const size = req.body.size === undefined ? 0 : Number(req.body.size)
+  if (usingPg) {
+    try {
+      const rows = await pgQuery(
+        'INSERT INTO files(workspace_id, filename, mime_type, size, storage_key, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+        [req.body.workspaceId ?? null, filename, mimeType, size, `files/${uuid()}`, (req as any).userId],
+      )
+      return res.status(201).json(mapFile(rows[0]))
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  const f = { id: uuid(), filename, mimeType, size, storageKey:`files/${uuid()}`, uploadedBy: (req as any).userId, createdAt: new Date().toISOString() }
   db.files.push(f); saveDB()
   res.status(201).json(f)
 })
 
 // Activities
-app.get('/api/activities', (req,res)=> {
+app.get('/api/activities', async (req,res)=> {
   const ws = req.query.workspaceId as string
+  if (usingPg) {
+    try {
+      const rows = ws
+        ? await pgQuery('SELECT * FROM activities WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 20', [ws])
+        : await pgQuery('SELECT * FROM activities ORDER BY created_at DESC LIMIT 20')
+      return res.json(rows.map(mapActivity))
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
   let acts = db.activities
   if (ws) acts = acts.filter(a=> a.workspaceId===ws)
   res.json(acts.slice(0,20))
@@ -445,7 +542,7 @@ app.get('/api/activities', (req,res)=> {
 // Login accepts legacy users without password_hash (returns demo-token path);
 // new registrations always store bcrypt hashes. Clients send
 // `Authorization: Bearer <jwt>`; `demo-token` + `x-user-id` still works.
-app.post('/api/auth/login', async (req,res)=> {
+app.post('/api/auth/login', authLimiter, async (req,res)=> {
   const parsed = z.object({ email: z.string().email(), password: z.string().optional() }).safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
   const { email, password } = parsed.data
@@ -478,7 +575,7 @@ app.post('/api/auth/login', async (req,res)=> {
   }
   res.json({ user: user ?? { id:'u1', email, name:'Alex Rivera' }, token:'demo-token' })
 })
-app.post('/api/auth/register', async (req,res)=> {
+app.post('/api/auth/register', authLimiter, async (req,res)=> {
   const parsed = z.object({ email: z.string().email(), name: z.string().min(1), password: z.string().min(8).optional() }).safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
   const { email, name, password } = parsed.data
@@ -499,7 +596,13 @@ app.post('/api/auth/register', async (req,res)=> {
 })
 
 // Notifications
-app.get('/api/notifications', authStub, (req:any,res)=> {
+app.get('/api/notifications', authStub, async (req:any,res)=> {
+  if (usingPg) {
+    try {
+      const rows = await pgQuery('SELECT * FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20', [(req as any).userId])
+      return res.json(rows.map(mapNotification))
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
   res.json([
     { id: uuid(), userId: (req as any).userId, type:'mention', title:'You were mentioned in Website Redesign', read:false, createdAt: new Date().toISOString() }
   ])
@@ -514,8 +617,13 @@ app.get('/api/templates', (_req,res)=> {
 })
 
 // AI stub
-app.post('/api/ai/generate', async (req,res)=> {
-  const { prompt, task } = req.body
+app.post('/api/ai/generate', aiLimiter, async (req,res)=> {
+  const parsed = z.object({
+    prompt: z.string().min(1).max(MAX_AI_PROMPT),
+    task: z.string().max(100).optional(),
+  }).safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
+  const { prompt, task } = parsed.data
   await new Promise(r=> setTimeout(r, 500))
   res.json({ result: `✨ [${task||'default'}] Simulated AI response for: "${String(prompt).slice(0,100)}"\n\nThis is a stub. Configure provider in Settings → AI.` })
 })

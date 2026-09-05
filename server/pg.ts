@@ -45,7 +45,7 @@ export const mapWorkspace = (r: any) => r && {
 export const mapPage = (r: any) => r && {
   id: r.id, workspaceId: r.workspace_id, parentId: r.parent_id ?? null,
   title: r.title, icon: r.icon, cover: r.cover, description: r.description,
-  properties: r.properties ?? {},
+  properties: r.properties ?? {}, theme: r.theme ?? 'default',
   isFavorite: r.is_favorite, isArchived: r.is_archived,
   isTrashed: r.is_trashed, isShared: r.is_shared, shareMode: r.share_mode,
   createdBy: r.created_by, updatedBy: r.updated_by,
@@ -58,6 +58,33 @@ export const mapBlock = (r: any) => r && {
 }
 export const mapRecord = (r: any) => r && {
   id: r.id, databaseId: r.database_id, properties: r.properties ?? {},
+  derived: r.derived ?? {},
   pageId: r.page_id ?? undefined, position: r.position ?? 0,
   createdBy: r.created_by, createdAt: iso(r.created_at), updatedAt: iso(r.updated_at),
+}
+
+export const mapFile = (r: any) => r && {
+  id: r.id, workspaceId: r.workspace_id, filename: r.filename,
+  mimeType: r.mime_type, size: r.size, storageKey: r.storage_key,
+  uploadedBy: r.uploaded_by, createdAt: iso(r.created_at),
+}
+
+export const mapComment = (r: any) => r && {
+  id: r.id, pageId: r.page_id ?? undefined, blockId: r.block_id ?? undefined,
+  recordId: r.record_id ?? undefined, authorId: r.author_id,
+  content: r.content ?? '', mentions: r.mentions ?? undefined,
+  resolved: r.resolved ?? false, parentId: r.parent_id ?? null,
+  createdAt: iso(r.created_at), updatedAt: iso(r.updated_at),
+}
+
+export const mapActivity = (r: any) => r && {
+  id: r.id, workspaceId: r.workspace_id, userId: r.user_id,
+  action: r.action, targetId: r.target_id, targetType: r.target_type,
+  metadata: r.metadata ?? undefined, createdAt: iso(r.created_at),
+}
+
+export const mapNotification = (r: any) => r && {
+  id: r.id, userId: r.user_id, type: r.type, title: r.title,
+  body: r.body ?? undefined, read: r.read ?? false, link: r.link ?? undefined,
+  createdAt: iso(r.created_at),
 }

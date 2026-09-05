@@ -1,7 +1,9 @@
-// Prisma schema — mirrors migrations/001_initial.sql + 002_db_performance.sql.
+// Prisma schema — mirrors migrations/001_initial.sql + 002_db_performance.sql + 002_page_theme.sql + 003_derived.sql.
 // Runtime uses `pg` Pool (server/pg.ts) against the same tables so the app runs
 // with or without `prisma generate`. Run `npx prisma db push` or
 // `npm run db:migrate` (raw SQL) to provision Postgres, then set DATABASE_URL.
+// NOTE (Prisma 7): datasource `url` lives in prisma.config.ts at the repo root,
+// not here. Do not re-add `url = env(...)` — `prisma validate` fails with P1012.
 
 generator client {
   provider = "prisma-client-js"
@@ -9,7 +11,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -55,6 +56,7 @@ model Page {
   cover       String?
   description String?
   properties  Json     @default("{}")
+  theme       String?  @default("default")
   isFavorite  Boolean  @default(false) @map("is_favorite")
   isArchived  Boolean  @default(false) @map("is_archived")
   isTrashed   Boolean  @default(false) @map("is_trashed")
@@ -157,5 +159,77 @@ model Comment {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz
 
+  @@index([pageId])
+  @@index([blockId])
   @@map("comments")
+}
+
+model File {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String?  @map("workspace_id") @db.Uuid
+  filename    String?
+  mimeType    String?  @map("mime_type")
+  size        Int?
+  storageKey  String?  @map("storage_key")
+  uploadedBy  String?  @map("uploaded_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([workspaceId])
+  @@map("files")
+}
+
+model Notification {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  type      String?
+  title     String?
+  body      String?
+  read      Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model Activity {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String?  @map("workspace_id") @db.Uuid
+  userId      String?  @map("user_id") @db.Uuid
+  action      String?
+  targetId    String?  @map("target_id") @db.Uuid
+  targetType  String?  @map("target_type")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([workspaceId, createdAt])
+  @@map("activities")
+}
+
+model PageVersion {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pageId         String?  @map("page_id") @db.Uuid
+  version        Int?
+  blocksSnapshot Json?    @map("blocks_snapshot")
+  createdBy      String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([pageId])
+  @@map("page_versions")
+}
+
+// pgvector table (migrations/004_pgvector.sql). Raw SQL only — the vector(256)
+// column has no Prisma native type, so it is opaque here. Dim must match
+// EMBEDDING_DIM in src/lib/embeddings.ts.
+model Embedding {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id") @db.Uuid
+  embedding  Unsupported("vector(256)")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@unique([entityType, entityId])
+  @@index([entityType, entityId])
+  @@map("embeddings")
 }
