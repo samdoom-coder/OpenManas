@@ -3,6 +3,9 @@ import type { Page, Block, Database, DatabaseProperty, DatabaseRecord, PropertyT
 import { generateSeed, templatesSeed } from '@/data/seed'
 import { uid } from '@/lib/utils'
 import { getRecordTitle } from '@/lib/propertyDefs'
+import type { AppSettings, ThemeMode } from '@/lib/settings'
+import { loadSettings, saveSettings, applyAllSettings, applyThemeMode, resolveTheme, applyFont, applyCompact } from '@/lib/settings'
+import { storageService } from '@/lib/storageService'
 
 interface AppState {
   user: User
@@ -21,6 +24,8 @@ interface AppState {
   commandOpen: boolean
   searchOpen: boolean
   theme: 'dark' | 'light'
+  themeMode: ThemeMode
+  settings: AppSettings
   /** Bumped every time blocks are restored from history (undo/redo) so editors can force-sync even when focused. */
   historyRev: number
   // actions
@@ -30,6 +35,12 @@ interface AppState {
   setCommandOpen: (v: boolean) => void
   setSearchOpen: (v: boolean) => void
   toggleTheme: () => void
+  setThemeMode: (mode: ThemeMode) => void
+  updateUser: (patch: Partial<User>) => void
+  updateWorkspace: (patch: Partial<Workspace>) => void
+  updateSettings: (patch: Partial<Omit<AppSettings, 'editor' | 'databases' | 'notifications' | 'collaboration'>> & { editor?: Partial<AppSettings['editor']>, databases?: Partial<AppSettings['databases']>, notifications?: Partial<AppSettings['notifications']>, collaboration?: Partial<AppSettings['collaboration']> }) => void
+  markAllNotificationsRead: () => void
+  emptyTrash: () => number
   createPage: (title: string, parentId?: string | null, icon?: string) => Page
   createPageFromTemplate: (templateName: string, parentId?: string | null) => Page
   movePage: (id: string, newParentId: string | null) => boolean
@@ -104,10 +115,32 @@ function loadOrSeed() {
 }
 
 const seedData = loadOrSeed()
+const initialSettings = loadSettings()
+// restore profile (persisted going forward inside nexus_state_v1)
+const initialUser: User = (seedData.user as User) ?? defaultUser
+const initialWorkspace: Workspace = (seedData.workspace as Workspace) ?? defaultWorkspace
+const initialThemeMode: ThemeMode = (seedData.themeMode as ThemeMode) ?? initialSettings.themeMode ?? 'dark'
+// apply on boot (fixes never-applied dark class + font/compact)
+try {
+  applyAllSettings({ ...initialSettings, themeMode: initialThemeMode })
+  storageService.setActive(initialSettings.storageProviderId ?? 'local')
+} catch { /* ssr guard */ }
+// follow OS changes while in system mode
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && initialThemeMode === 'system') {
+  try {
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+      if (useAppStore.getState().themeMode === 'system') {
+        const resolved = resolveTheme('system')
+        document.documentElement.classList.toggle('dark', resolved === 'dark')
+        useAppStore.setState({ theme: resolved })
+      }
+    })
+  } catch { /* older browsers */ }
+}
 
 export const useAppStore = create<AppState>((set, get) => ({
-  user: defaultUser,
-  workspace: defaultWorkspace,
+  user: initialUser,
+  workspace: initialWorkspace,
   pages: seedData.pages as Page[],
   blocks: seedData.blocks as Block[],
   databases: seedData.databases as Database[],
@@ -124,10 +157,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   files: [] as FileAsset[],
   selectedPageId: (seedData.pages as Page[])[1]?.id || null,
   selectedDatabaseId: null,
-  sidebarCollapsed: false,
+  sidebarCollapsed: initialSettings.sidebarDefault === 'collapsed',
   commandOpen: false,
   searchOpen: false,
-  theme: 'dark',
+  theme: resolveTheme(initialThemeMode),
+  themeMode: initialThemeMode,
+  settings: { ...initialSettings, themeMode: initialThemeMode },
   historyRev: 0,
 
   setSelectedPage: (id) => set({ selectedPageId: id, selectedDatabaseId: null }),
@@ -138,8 +173,76 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleTheme: () => set(s => {
     const next = s.theme === 'dark' ? 'light' : 'dark'
     document.documentElement.classList.toggle('dark', next === 'dark')
-    return { theme: next }
+    const merged = { ...s.settings, themeMode: next as ThemeMode }
+    saveSettings(merged)
+    return { theme: next, themeMode: next, settings: merged }
   }),
+  setThemeMode: (mode) => set(s => {
+    const resolved = applyThemeMode(mode)
+    // attach OS listener lazily when entering system mode
+    if (mode === 'system' && typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+      try {
+        const mq = window.matchMedia('(prefers-color-scheme: light)')
+        const handler = () => {
+          if (useAppStore.getState().themeMode === 'system') {
+            const r = resolveTheme('system')
+            document.documentElement.classList.toggle('dark', r === 'dark')
+            useAppStore.setState({ theme: r })
+          }
+        }
+        mq.addEventListener('change', handler)
+      } catch { /* noop */ }
+    }
+    const merged = { ...s.settings, themeMode: mode }
+    saveSettings(merged)
+    persist({ ...get(), themeMode: mode, settings: merged, theme: resolved })
+    return { themeMode: mode, theme: resolved, settings: merged }
+  }),
+  updateUser: (patch) => {
+    set(s => ({ user: { ...s.user, ...patch, updatedAt: new Date().toISOString() } }))
+    persist(get())
+  },
+  updateWorkspace: (patch) => {
+    set(s => ({ workspace: { ...s.workspace, ...patch, updatedAt: new Date().toISOString() } }))
+    persist(get())
+  },
+  updateSettings: (patch) => {
+    const s = get()
+    const merged: AppSettings = {
+      ...s.settings,
+      ...patch,
+      editor: { ...s.settings.editor, ...(patch.editor ?? {}) },
+      databases: { ...s.settings.databases, ...(patch.databases ?? {}) },
+      notifications: { ...s.settings.notifications, ...(patch.notifications ?? {}) },
+      collaboration: { ...s.settings.collaboration, ...(patch.collaboration ?? {}) },
+    }
+    const themeChanged = merged.themeMode !== s.settings.themeMode
+    set({ settings: merged, themeMode: merged.themeMode })
+    // apply visual prefs immediately
+    try {
+      applyFont(merged.fontFamily)
+      applyCompact(merged.compactMode)
+      if (themeChanged) {
+        const resolved = applyThemeMode(merged.themeMode)
+        set({ theme: resolved })
+      }
+      try { storageService.setActive(merged.storageProviderId) } catch { /* unknown provider */ }
+    } catch { /* ssr */ }
+    saveSettings(merged)
+    persist({ ...get(), settings: merged })
+  },
+  markAllNotificationsRead: () => set(s => ({ notifications: s.notifications.map(n => ({ ...n, read: true })) })),
+  emptyTrash: () => {
+    const trashed = get().pages.filter(p => p.isTrashed)
+    if (trashed.length === 0) return 0
+    const ids = new Set(trashed.map(p => p.id))
+    set(s => ({
+      pages: s.pages.filter(p => !p.isTrashed),
+      blocks: s.blocks.filter(b => !ids.has(b.pageId)),
+    }))
+    persist(get())
+    return trashed.length
+  },
 
   createPage: (title, parentId=null, icon) => {
     const iconType = !icon ? 'none' as const : /^[A-Za-z][A-Za-z0-9]*$/.test(icon) ? 'lucide' as const : 'emoji' as const
@@ -453,9 +556,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 function persist(state: any) {
   try {
-    const toSave = { pages: state.pages, blocks: state.blocks, databases: state.databases, records: state.records }
+    const toSave = {
+      pages: state.pages, blocks: state.blocks, databases: state.databases, records: state.records,
+      user: state.user, workspace: state.workspace,
+      themeMode: state.themeMode ?? state.settings?.themeMode,
+    }
     localStorage.setItem('nexus_state_v1', JSON.stringify(toSave))
     localStorage.setItem('nexus_state_backup', JSON.stringify({ ...toSave, at: new Date().toISOString()}))
+    if (state.settings) saveSettings(state.settings)
   } catch {}
 }
 
