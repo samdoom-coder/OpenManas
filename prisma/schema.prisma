@@ -1,0 +1,161 @@
+// Prisma schema — mirrors migrations/001_initial.sql + 002_db_performance.sql.
+// Runtime uses `pg` Pool (server/pg.ts) against the same tables so the app runs
+// with or without `prisma generate`. Run `npx prisma db push` or
+// `npm run db:migrate` (raw SQL) to provision Postgres, then set DATABASE_URL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String    @unique
+  name         String
+  avatar       String?
+  passwordHash String?   @map("password_hash")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@map("users")
+}
+
+model Workspace {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  icon      String?
+  ownerId   String?  @map("owner_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  role        String
+  joinedAt    DateTime @default(now()) @map("joined_at") @db.Timestamptz
+
+  @@unique([workspaceId, userId])
+  @@map("workspace_members")
+}
+
+model Page {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  parentId    String?  @map("parent_id") @db.Uuid
+  title       String
+  icon        String?
+  cover       String?
+  description String?
+  properties  Json     @default("{}")
+  isFavorite  Boolean  @default(false) @map("is_favorite")
+  isArchived  Boolean  @default(false) @map("is_archived")
+  isTrashed   Boolean  @default(false) @map("is_trashed")
+  isShared    Boolean  @default(false) @map("is_shared")
+  shareMode   String?  @map("share_mode")
+  createdBy   String?  @map("created_by") @db.Uuid
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@index([workspaceId])
+  @@index([parentId])
+  @@index([updatedAt])
+  @@map("pages")
+}
+
+model Block {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pageId     String   @map("page_id") @db.Uuid
+  parentId   String?  @map("parent_id") @db.Uuid
+  type       String
+  content    String?
+  properties Json     @default("{}")
+  position   Int
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@index([pageId])
+  @@index([position])
+  @@map("blocks")
+}
+
+model Database {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  pageId      String?  @map("page_id") @db.Uuid
+  name        String
+  icon        String?
+  description String?
+  createdBy   String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@map("databases")
+}
+
+model DatabaseProperty {
+  id                 String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  databaseId         String  @map("database_id") @db.Uuid
+  name               String
+  type               String
+  options            Json?
+  relationDatabaseId String? @map("relation_database_id") @db.Uuid
+  width              Int?
+  visible            Boolean @default(true)
+
+  @@index([databaseId])
+  @@map("database_properties")
+}
+
+model DatabaseView {
+  id                String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  databaseId        String  @map("database_id") @db.Uuid
+  name              String
+  type              String
+  filter            Json?
+  sort              Json?
+  groupBy           String? @map("group_by") @db.Uuid
+  visibleProperties Json?   @map("visible_properties")
+
+  @@index([databaseId])
+  @@map("database_views")
+}
+
+model DatabaseRecord {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  databaseId String   @map("database_id") @db.Uuid
+  properties Json     @default("{}")
+  derived    Json     @default("{}")
+  pageId     String?  @map("page_id") @db.Uuid
+  position   Int?
+  createdBy  String?  @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@index([databaseId])
+  @@map("database_records")
+}
+
+model Comment {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pageId    String?  @map("page_id") @db.Uuid
+  blockId   String?  @map("block_id") @db.Uuid
+  recordId  String?  @map("record_id") @db.Uuid
+  authorId  String?  @map("author_id") @db.Uuid
+  content   String?
+  mentions  Json?
+  resolved  Boolean  @default(false)
+  parentId  String?  @map("parent_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@map("comments")
+}
