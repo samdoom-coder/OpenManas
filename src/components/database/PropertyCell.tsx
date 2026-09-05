@@ -3,6 +3,7 @@ import { Check, Link2, Mail, Phone, Plus, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DatabaseProperty, DatabaseRecord } from '@/lib/types'
 import { coercePropertyValue, displayPropertyValue } from '@/lib/propertyDefs'
+import { getDerivedValue } from '@/lib/databaseEngine'
 import { useAppStore } from '@/stores/appStore'
 
 export function optionColor(v: string) {
@@ -51,6 +52,20 @@ export function PropertyCell({
 }) {
   const commit = (raw: unknown) => onCommit(coercePropertyValue(prop, raw))
 
+  // Derived columns: when Settings → Databases → rollupFormulas is on,
+  // formula/rollup evaluate live (Postgres: generated column / read-model).
+  const rollupsOn = useAppStore(s => s.settings?.databases?.rollupFormulas ?? false)
+  const derived = useAppStore(s => {
+    if (!rollupsOn) return null
+    if (prop.type !== 'formula' && prop.type !== 'rollup') return null
+    const db = s.databases.find(d => d.properties.some(p => p.id === prop.id))
+    if (!db || !record) return null
+    try {
+      return getDerivedValue(prop, { database: db, record, allRecords: s.records })
+    } catch { return null }
+  })
+  const displayValue = derived !== null && derived !== undefined ? derived : value
+
   // ---- checkbox: inline toggle, no edit mode ----
   if (prop.type === 'checkbox') {
     return (
@@ -75,8 +90,8 @@ export function PropertyCell({
   // ---- read-only ----
   if (prop.type === 'formula' || prop.type === 'rollup' || prop.type === 'created_time' || prop.type === 'updated_time') {
     return (
-      <span className="block truncate text-[13px] text-muted-foreground" title={displayPropertyValue(prop, value, record?.createdAt, record?.updatedAt)}>
-        {displayPropertyValue(prop, value, record?.createdAt, record?.updatedAt) || <span className="opacity-40">—</span>}
+      <span className="block truncate text-[13px] text-muted-foreground" title={displayPropertyValue(prop, displayValue, record?.createdAt, record?.updatedAt)}>
+        {displayPropertyValue(prop, displayValue, record?.createdAt, record?.updatedAt) || <span className="opacity-40">—</span>}
       </span>
     )
   }

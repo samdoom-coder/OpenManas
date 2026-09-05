@@ -381,10 +381,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   createDatabase: (name) => {
+    // First view follows Settings → Databases → defaultView (Postgres: database_views row order).
+    const preferred = get().settings?.databases?.defaultView ?? 'table'
+    const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+    const mkView = (type: typeof preferred) => ({ id: uid(), name: cap(type), type })
+    const views = preferred === 'table'
+      ? [mkView('table'), { id: uid(), name: 'Board', type: 'board' as const, groupBy: 'prop_status' }]
+      : [mkView(preferred), mkView('table')]
     const db: Database = { id: uid(), workspaceId: get().workspace.id, name, icon: '▦', properties: [
       { id: 'prop_name', name: 'Name', type: 'text', visible: true },
       { id: 'prop_status', name: 'Status', type: 'status', options: ['Todo','Doing','Done'], visible: true },
-    ], views: [{ id: uid(), name: 'Table', type: 'table' }, { id: uid(), name: 'Board', type: 'board', groupBy: 'prop_status'}], createdBy: get().user.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+    ], views, createdBy: get().user.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
     set(s=> ({ databases: [...s.databases, db], selectedDatabaseId: db.id }))
     persist(get())
     return db

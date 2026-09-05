@@ -1,7 +1,7 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useAppStore } from '@/stores/appStore'
 import type { Database, DatabaseRecord, FilterGroup, FilterCondition } from '@/lib/types'
-import { evaluateFilter, sortRecords, groupRecords } from '@/lib/databaseEngine'
+import { evaluateFilter, sortRecords, groupRecords, paginate, pageCount } from '@/lib/databaseEngine'
 import { propertyDefFor } from '@/lib/propertyDefs'
 import { PropertyCell } from '@/components/database/PropertyCell'
 import { ColumnHeaderMenu, AddPropertyDialog, EditPropertyDialog } from '@/components/database/PropertyMenu'
@@ -13,10 +13,19 @@ import { Modal } from '@/components/ui/modal'
 import { cn } from '@/lib/utils'
 import { recordsToCsv, recordsToJson, parseCsv, parseCsvCell, mapCsvToRecords, downloadFile, slugify } from '@/lib/csvUtils'
 
-export function DatabaseViews({ database, compact }: { database: Database, compact?: boolean }) {
-  const { records, createRecord, importRecords, updateRecord, deleteRecord, updateProperty } = useAppStore()
+export function DatabaseViews({ database, compact, initialViewType, onViewTypeChange }: { database: Database, compact?: boolean, initialViewType?: Database['views'][number]['type'], onViewTypeChange?: (t: Database['views'][number]['type']) => void }) {
+  const { records, createRecord, importRecords, updateRecord, deleteRecord, updateProperty, settings, updateSettings } = useAppStore()
   const dbRecords = records.filter(r=> r.databaseId===database.id)
-  const [viewType, setViewType] = useState(database.views[0]?.type || 'table')
+  const settingsDefault = settings?.databases?.defaultView ?? 'table'
+  const preferredInitial = initialViewType ?? (database.views.some(v => v.type === settingsDefault) ? settingsDefault : (database.views[0]?.type || settingsDefault))
+  const [viewType, setViewType] = useState(preferredInitial)
+  // per-embed override (linked DB): follow block prop, reset when switching databases
+  useEffect(() => {
+    const next = initialViewType ?? (database.views.some(v => v.type === (useAppStore.getState().settings?.databases?.defaultView ?? 'table')) ? useAppStore.getState().settings.databases.defaultView : (database.views[0]?.type || 'table'))
+    setViewType(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [database.id])
+  const changeView = (t: typeof viewType) => { setViewType(t); onViewTypeChange?.(t) }
   const view = database.views.find(v=> v.type===viewType) || database.views[0]
   const [filterQ, setFilterQ] = useState('')
   const [newRow, setNewRow] = useState<Record<string, any>>({})
@@ -28,7 +37,9 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
   const [showControls, setShowControls] = useState(false)
   const [openRecordId, setOpenRecordId] = useState<string | null>(null)
   const [ioMessage, setIoMessage] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
   const fileRef = useRef<HTMLInputElement>(null)
+  const pageSize = settings?.databases?.pageSize ?? 50
 
   const filtered = useMemo(()=> {
     let recs = dbRecords
@@ -39,6 +50,15 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
     else if (view?.sort) recs = sortRecords(recs, view.sort)
     return recs
   }, [dbRecords, view, filterQ, sort, filterGroup])
+
+  // Pagination mirrors Postgres LIMIT/OFFSET (server: COUNT(*) + LIMIT/OFFSET,
+  // stable ORDER BY position, id). Export/ counts use `filtered`, views render `paged`.
+  const totalPages = pageCount(filtered.length, pageSize)
+  const safePage = Math.min(page, totalPages)
+  const paged = useMemo(()=> paginate(filtered, safePage, pageSize), [filtered, safePage, pageSize])
+  useEffect(()=> { setPage(1) }, [database.id, filterQ, filterGroup, sort, pageSize])
+  const from = filtered.length === 0 ? 0 : (safePage - 1) * pageSize + 1
+  const to = Math.min(filtered.length, safePage * pageSize)
 
   const handleAdd = () => {
     const props: Record<string, unknown> = {}
@@ -146,7 +166,7 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
       <div className={cn("flex flex-wrap items-center gap-2 w-full max-w-full relative", compact && "gap-1 px-1")}>
         <div className={cn("flex items-center gap-1 p-1 rounded-xl border bg-muted/20 overflow-auto flex-1 max-w-full", compact && "p-0.5")}>
           {(['table','board','gallery','calendar','list','timeline'] as const).map(t=> (
-            <button key={t} onClick={()=> setViewType(t as any)} className={cn(`px-3 py-1.5 rounded-lg text-xs font-medium capitalize flex items-center gap-1.5 shrink-0 ${viewType===t ? 'bg-background shadow border' : 'hover:bg-accent'}`, compact && "px-2 py-1 text-[11px]")}>
+            <button key={t} onClick={()=> changeView(t as any)} className={cn(`px-3 py-1.5 rounded-lg text-xs font-medium capitalize flex items-center gap-1.5 shrink-0 ${viewType===t ? 'bg-background shadow border' : 'hover:bg-accent'}`, compact && "px-2 py-1 text-[11px]")}>
               {t==='table' && <TableIcon size={14}/>}
               {t==='board' && <Kanban size={14}/>}
               {t==='gallery' && <LayoutGrid size={14}/>}
@@ -276,12 +296,26 @@ export function DatabaseViews({ database, compact }: { database: Database, compa
         </div>
       )}
 
-      {viewType==='table' && <TableView database={database} records={filtered} hiddenCols={hiddenCols} onHide={toggleHide} onOpenRecord={setOpenRecordId} onUpdate={updateRecord} onDelete={deleteRecord} onSort={(pid)=> setSort({ propertyId: pid, direction: sort?.direction==='asc' ? 'desc' : 'asc'})} />}
-      {viewType==='board' && <BoardView database={database} records={filtered} onUpdate={updateRecord} onOpenRecord={setOpenRecordId} />}
-      {viewType==='gallery' && <GalleryView database={database} records={filtered} onOpenRecord={setOpenRecordId} />}
-      {viewType==='calendar' && <CalendarView database={database} records={filtered} />}
-      {viewType==='list' && <ListView database={database} records={filtered} onOpenRecord={setOpenRecordId} />}
-      {viewType==='timeline' && <TimelineView database={database} records={filtered} />}
+      {viewType==='table' && <TableView database={database} records={paged} hiddenCols={hiddenCols} onHide={toggleHide} onOpenRecord={setOpenRecordId} onUpdate={updateRecord} onDelete={deleteRecord} onSort={(pid)=> setSort({ propertyId: pid, direction: sort?.direction==='asc' ? 'desc' : 'asc'})} />}
+      {viewType==='board' && <BoardView database={database} records={paged} onUpdate={updateRecord} onOpenRecord={setOpenRecordId} />}
+      {viewType==='gallery' && <GalleryView database={database} records={paged} onOpenRecord={setOpenRecordId} />}
+      {viewType==='calendar' && <CalendarView database={database} records={paged} />}
+      {viewType==='list' && <ListView database={database} records={paged} onOpenRecord={setOpenRecordId} />}
+      {viewType==='timeline' && <TimelineView database={database} records={paged} />}
+
+      {!compact && filtered.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span className="tabular-nums">Showing {from}–{to} of {filtered.length}</span>
+          <div className="flex items-center gap-1 ml-auto">
+            <button disabled={safePage<=1} onClick={()=> setPage(p=> Math.max(1, p-1))} className="px-2 py-1 rounded-lg border bg-card disabled:opacity-40 hover:bg-accent">Prev</button>
+            <span className="tabular-nums px-1">Page {safePage} / {totalPages}</span>
+            <button disabled={safePage>=totalPages} onClick={()=> setPage(p=> Math.min(totalPages, p+1))} className="px-2 py-1 rounded-lg border bg-card disabled:opacity-40 hover:bg-accent">Next</button>
+            <select aria-label="Rows per page" value={pageSize} onChange={e=> updateSettings({ databases: { pageSize: Number(e.target.value) } })} className="border rounded-lg px-1.5 py-1 bg-background">
+              {[10,25,50,100].map(n=> <option key={n} value={n}>{n}/page</option>)}
+            </select>
+          </div>
+        </div>
+      )}
 
       {viewType!=='table' && (
       <div className={cn("flex gap-2 p-2 border rounded-xl bg-muted/10", compact && "hidden sm:flex")}>

@@ -169,8 +169,21 @@ app.post('/api/databases', authStub, (req:any,res)=> {
   res.status(201).json(d)
 })
 app.get('/api/databases/:id/records', authStub, (req,res)=> {
-  const recs = db.records.filter(r=> r.databaseId===req.params.id)
-  res.json(recs)
+  // Postgres-ready pagination: ?page=1&pageSize=50 mirrors LIMIT/OFFSET.
+  // Postgres: SELECT *, COUNT(*) OVER() AS total FROM database_records
+  //   WHERE database_id=$1 ORDER BY position, id LIMIT $2 OFFSET $3
+  const all = db.records.filter(r=> r.databaseId===req.params.id)
+  const pageRaw = req.query.page as string | undefined
+  const sizeRaw = req.query.pageSize as string | undefined
+  if (pageRaw === undefined && sizeRaw === undefined) return res.json(all)
+  const parsed = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(500).default(50),
+  }).safeParse({ page: pageRaw ?? 1, pageSize: sizeRaw ?? 50 })
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
+  const { page, pageSize } = parsed.data
+  const start = (page - 1) * pageSize
+  res.json({ rows: all.slice(start, start + pageSize), total: all.length, page, pageSize })
 })
 app.post('/api/databases/:id/records', authStub, (req:any,res)=> {
   const rec = { id: uuid(), databaseId: req.params.id, properties: req.body.properties||{}, pageId: req.body.pageId, position: db.records.filter(r=> r.databaseId===req.params.id).length, createdBy: (req as any).userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
