@@ -1,6 +1,6 @@
 // Central Settings model — future-proofed for roadmap (DB, collab, storage, perf, security).
 // AI intentionally excluded for now (see FUTURE_UPDATES Phase 6 — stub only).
-// Persisted to localStorage `nexus_settings_v1`, applied on boot (theme/font/compact).
+// Persisted to localStorage `openmanas_settings_v1`, applied on boot (theme/font/compact).
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 export type ResolvedTheme = 'light' | 'dark'
@@ -58,11 +58,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   storageProviderId: 'local',
 }
 
-const KEY = 'nexus_settings_v1'
+const KEY = 'openmanas_settings_v1'
+const LEGACY_KEY = 'nexus_settings_v1' // pre-rebrand — migrated on first save
 
 export function loadSettings(): AppSettings {
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = localStorage.getItem(KEY) ?? localStorage.getItem(LEGACY_KEY)
     if (!raw) return { ...DEFAULT_SETTINGS, editor: { ...DEFAULT_SETTINGS.editor }, databases: { ...DEFAULT_SETTINGS.databases }, notifications: { ...DEFAULT_SETTINGS.notifications }, collaboration: { ...DEFAULT_SETTINGS.collaboration } }
     const parsed = JSON.parse(raw) as Partial<AppSettings>
     return {
@@ -79,7 +80,10 @@ export function loadSettings(): AppSettings {
 }
 
 export function saveSettings(s: AppSettings) {
-  try { localStorage.setItem(KEY, JSON.stringify(s)) } catch { /* quota */ }
+  try {
+    localStorage.setItem(KEY, JSON.stringify(s))
+    localStorage.removeItem(LEGACY_KEY)
+  } catch { /* quota */ }
 }
 
 export function resolveTheme(mode: ThemeMode): ResolvedTheme {

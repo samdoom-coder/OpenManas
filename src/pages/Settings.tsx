@@ -77,7 +77,7 @@ export function Settings() {
     const size = (k: string) => {
       try { return (localStorage.getItem(k) ?? '').length } catch { return 0 }
     }
-    const bytes = size('nexus_state_v1') + size('nexus_files') + size('nexus_settings_v1')
+    const bytes = size('openmanas_state_v1') + size('nexus_state_v1') + size('openmanas_files') + size('nexus_files') + size('openmanas_settings_v1') + size('nexus_settings_v1')
     return { kb: (bytes / 1024).toFixed(1), bytes }
   }, [pages, records, settings])
 
@@ -106,7 +106,7 @@ export function Settings() {
     const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
-    a.download = `nexus-export-${new Date().toISOString().slice(0, 10)}.json`
+    a.download = `openmanas-export-${new Date().toISOString().slice(0, 10)}.json`
     a.click()
     URL.revokeObjectURL(a.href)
     push({ title: 'Workspace exported', desc: `${stats.pages} pages, ${stats.records} records.` })
@@ -362,7 +362,7 @@ export function Settings() {
                 <CardContent className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => { const n = emptyTrash(); push({ title: n === 0 ? 'Trash already empty' : `Permanently deleted ${n} page(s)` }) }}>Empty trash ({stats.trashed})</Button>
                   <Button size="sm" variant="outline" onClick={exportWorkspace}>Backup first</Button>
-                  <Button size="sm" variant="ghost" onClick={() => { if (confirm('Reset demo data? Local pages/blocks will be replaced by seed.')) { localStorage.removeItem('nexus_state_v1'); location.reload() } }}>Reset demo data</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { if (confirm('Reset demo data? Local pages/blocks will be replaced by seed.')) { localStorage.removeItem('openmanas_state_v1'); localStorage.removeItem('nexus_state_v1'); location.reload() } }}>Reset demo data</Button>
                 </CardContent>
               </Card>
             </div>

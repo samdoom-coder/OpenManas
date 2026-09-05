@@ -38,7 +38,7 @@ App runs at http://localhost:5173 (proxies /api → 3001).
 Sign in → Workspace → Create Page → Open Editor → Add Blocks → Edit → Reorder → Autosave → Navigate away → Return (still there)
 ```
 
-Autosave is debounced (400ms), persisted to localStorage (`nexus_state_v1`) and backend via `server/db.json`.
+Autosave is debounced (400ms), persisted to localStorage (`openmanas_state_v1`) and backend via `server/db.json`.
 
 ## Architecture
 

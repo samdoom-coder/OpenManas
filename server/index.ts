@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
+import crypto from 'crypto'
 import { z } from 'zod'
 import { v4 as uuid } from 'uuid'
 import fs from 'fs'
@@ -37,7 +38,7 @@ if (process.env.NODE_ENV === 'production' && jwtSecretIsDefault()) {
 }
 
 // Persistence: Postgres when DATABASE_URL is set, else JSON file (zero-setup dev).
-// Run `npm run db:migrate` once to apply migrations/001 through 005.
+// Run `npm run db:migrate` once to apply migrations/001 through 006.
 const DB_PATH = path.join(process.cwd(), 'server', 'db.json')
 type DB = {
   users: any[]
@@ -49,15 +50,17 @@ type DB = {
   files: any[]
   comments: any[]
   activities: any[]
+  shares: any[]
 }
 
 function loadDB(): DB {
   try {
     if (fs.existsSync(DB_PATH)) return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'))
   } catch {}
-  return { users:[], workspaces:[], pages:[], blocks:[], databases:[], records:[], files:[], comments:[], activities:[] }
+  return { users:[], workspaces:[], pages:[], blocks:[], databases:[], records:[], files:[], comments:[], activities:[], shares:[] }
 }
 let db: DB = loadDB()
+if (!Array.isArray((db as any).shares)) (db as any).shares = []
 function saveDB() {
   try { fs.mkdirSync(path.dirname(DB_PATH), { recursive:true }); fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2)) } catch(e){ console.error('saveDB', e)}
 }
@@ -65,8 +68,13 @@ function saveDB() {
 // Middleware: JWT (Bearer) with stub fallback (x-user-id / demo-token)
 const authStub = authMiddleware
 
+const isUuidLike = (v: unknown): v is string =>
+  typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+
 // Validation schemas
+const uuidOrAbsent = z.string().uuid().optional()
 const pageSchema = z.object({
+  id: uuidOrAbsent,
   workspaceId: z.string(),
   parentId: z.string().nullable().optional(),
   title: z.string().min(1).max(200),
@@ -80,6 +88,7 @@ const pageSchema = z.object({
 })
 
 const blockSchema = z.object({
+  id: uuidOrAbsent,
   pageId: z.string(),
   type: z.string(),
   content: z.string().max(MAX_BLOCK_CONTENT),
@@ -133,16 +142,21 @@ app.post('/api/pages', authStub, async (req:any, res)=> {
   if (usingPg) {
     try {
       const d = parsed.data
+      const withId = !!d.id
       const rows = await pgQuery(
-        'INSERT INTO pages(workspace_id, parent_id, title, icon, cover, description, properties, theme) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
-        [d.workspaceId, d.parentId ?? null, d.title, (d as any).icon ?? null, (d as any).cover ?? null, (d as any).description ?? null, JSON.stringify((d as any).properties ?? {}), (d as any).theme ?? 'default'],
+        withId
+          ? 'INSERT INTO pages(id, workspace_id, parent_id, title, icon, cover, description, properties, theme) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *'
+          : 'INSERT INTO pages(workspace_id, parent_id, title, icon, cover, description, properties, theme) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
+        withId
+          ? [d.id, d.workspaceId, d.parentId ?? null, d.title, (d as any).icon ?? null, (d as any).cover ?? null, (d as any).description ?? null, JSON.stringify((d as any).properties ?? {}), (d as any).theme ?? 'default']
+          : [d.workspaceId, d.parentId ?? null, d.title, (d as any).icon ?? null, (d as any).cover ?? null, (d as any).description ?? null, JSON.stringify((d as any).properties ?? {}), (d as any).theme ?? 'default'],
       )
       const page = mapPage(rows[0])
       await pgQuery('INSERT INTO activities(workspace_id, user_id, action, target_id, target_type) VALUES ($1,$2,$3,$4,$5)', [page.workspaceId, (req as any).userId, 'page_created', page.id, 'page']).catch(()=>{})
       return res.status(201).json(page)
     } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
   }
-  const page = { id: uuid(), ...parsed.data, isFavorite:false, isArchived:false, isTrashed:false, isShared:false, createdBy: (req as any).userId, updatedBy: (req as any).userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  const page = { ...parsed.data, id: parsed.data.id ?? uuid(), isFavorite:false, isArchived:false, isTrashed:false, isShared:false, createdBy: (req as any).userId, updatedBy: (req as any).userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
   db.pages.push(page); saveDB()
   db.activities.unshift({ id: uuid(), workspaceId: page.workspaceId, userId: (req as any).userId, action:'page_created', targetId: page.id, targetType:'page', createdAt: new Date().toISOString() })
   res.status(201).json(page)
@@ -231,12 +245,18 @@ app.post('/api/blocks', authStub, async (req,res)=> {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
   if (usingPg) {
     try {
-      const rows = await pgQuery('INSERT INTO blocks(page_id, parent_id, type, content, properties, position) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-        [parsed.data.pageId, parsed.data.parentId ?? null, parsed.data.type, parsed.data.content, JSON.stringify(parsed.data.properties ?? {}), parsed.data.position])
+      const withId = !!parsed.data.id
+      const rows = await pgQuery(
+        withId
+          ? 'INSERT INTO blocks(id, page_id, parent_id, type, content, properties, position) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *'
+          : 'INSERT INTO blocks(page_id, parent_id, type, content, properties, position) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+        withId
+          ? [parsed.data.id, parsed.data.pageId, parsed.data.parentId ?? null, parsed.data.type, parsed.data.content, JSON.stringify(parsed.data.properties ?? {}), parsed.data.position]
+          : [parsed.data.pageId, parsed.data.parentId ?? null, parsed.data.type, parsed.data.content, JSON.stringify(parsed.data.properties ?? {}), parsed.data.position])
       return res.status(201).json(mapBlock(rows[0]))
     } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
   }
-  const block = { id: uuid(), ...parsed.data, properties: parsed.data.properties||{}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  const block = { ...parsed.data, id: parsed.data.id ?? uuid(), properties: parsed.data.properties||{}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
   db.blocks.push(block); saveDB()
   res.status(201).json(block)
 })
@@ -325,27 +345,40 @@ app.get('/api/databases', authStub, async (req,res)=> {
   res.json(dbs)
 })
 app.post('/api/databases', authStub, async (req:any,res)=> {
-  const schema = z.object({ workspaceId: z.string(), name: z.string().min(1).max(100), icon: z.string().max(50).optional(), description: z.string().max(2000).optional(), properties: z.array(z.any()).optional(), views: z.array(z.any()).optional() })
+  const schema = z.object({ id: uuidOrAbsent, workspaceId: z.string(), name: z.string().min(1).max(100), icon: z.string().max(50).optional(), description: z.string().max(2000).optional(), properties: z.array(z.any()).optional(), views: z.array(z.any()).optional() })
   const parsed = schema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
   if (usingPg) {
     try {
-      const d = await pgQuery('INSERT INTO databases(workspace_id, name, icon, description, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *', [parsed.data.workspaceId, parsed.data.name, parsed.data.icon ?? null, parsed.data.description ?? null, (req as any).userId])
+      const withId = !!parsed.data.id
+      const d = await pgQuery(
+        withId
+          ? 'INSERT INTO databases(id, workspace_id, name, icon, description, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *'
+          : 'INSERT INTO databases(workspace_id, name, icon, description, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+        withId
+          ? [parsed.data.id, parsed.data.workspaceId, parsed.data.name, parsed.data.icon ?? null, parsed.data.description ?? null, (req as any).userId]
+          : [parsed.data.workspaceId, parsed.data.name, parsed.data.icon ?? null, parsed.data.description ?? null, (req as any).userId])
       const dbId = (d[0] as any).id
       for (const p of parsed.data.properties ?? []) {
-        await pgQuery('INSERT INTO database_properties(database_id, name, type, options, relation_database_id, width, visible) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-          [dbId, p.name, p.type, p.options ? JSON.stringify(p.options) : null, p.relationDatabaseId ?? null, p.width ?? null, p.visible ?? true])
+        await pgQuery('INSERT INTO database_properties(id, database_id, name, type, options, relation_database_id, width, visible) VALUES (COALESCE($1, gen_random_uuid()),$2,$3,$4,$5,$6,$7,$8)',
+          [isUuidLike(p.id) ? p.id : null, dbId, p.name, p.type, p.options ? JSON.stringify(p.options) : null, p.relationDatabaseId ?? null, p.width ?? null, p.visible ?? true])
       }
       const views = parsed.data.views?.length ? parsed.data.views : [{ name: 'Table', type: 'table' }]
       for (const v of views) {
-        await pgQuery('INSERT INTO database_views(database_id, name, type, filter, sort, group_by, visible_properties) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-          [dbId, v.name, v.type, v.filter ? JSON.stringify(v.filter) : null, v.sort ? JSON.stringify(v.sort) : null, v.groupBy ?? null, v.visibleProperties ? JSON.stringify(v.visibleProperties) : null])
+        await pgQuery('INSERT INTO database_views(id, database_id, name, type, filter, sort, group_by, visible_properties) VALUES (COALESCE($1, gen_random_uuid()),$2,$3,$4,$5,$6,$7,$8)',
+          [isUuidLike(v.id) ? v.id : null, dbId, v.name, v.type, v.filter ? JSON.stringify(v.filter) : null, v.sort ? JSON.stringify(v.sort) : null, v.groupBy ?? null, v.visibleProperties ? JSON.stringify(v.visibleProperties) : null])
       }
-      const out = await pgQuery('SELECT * FROM databases WHERE id=$1', [dbId])
-      return res.status(201).json({ id: out[0].id, workspaceId: out[0].workspace_id, name: out[0].name, icon: out[0].icon, description: out[0].description, isFavorite: out[0].is_favorite ?? false, properties: parsed.data.properties ?? [], views, createdBy: out[0].created_by, createdAt: out[0].created_at, updatedAt: out[0].updated_at })
+      const full = await pgQuery('SELECT d.*, (SELECT json_agg(p.*) FROM database_properties p WHERE p.database_id=d.id) AS props, (SELECT json_agg(v.*) FROM database_views v WHERE v.database_id=d.id) AS views FROM databases d WHERE d.id=$1', [dbId])
+      const fd: any = full[0]
+      return res.status(201).json({
+        id: fd.id, workspaceId: fd.workspace_id, name: fd.name, icon: fd.icon, description: fd.description, isFavorite: fd.is_favorite ?? false,
+        properties: (fd.props ?? []).map((p: any) => ({ id: p.id, name: p.name, type: p.type, options: p.options ?? undefined, relationDatabaseId: p.relation_database_id ?? undefined, width: p.width ?? undefined, visible: p.visible ?? true })),
+        views: (fd.views ?? []).map((v: any) => ({ id: v.id, name: v.name, type: v.type, filter: v.filter ?? undefined, sort: v.sort ?? undefined, groupBy: v.group_by ?? undefined, visibleProperties: v.visible_properties ?? undefined })),
+        createdBy: fd.created_by, createdAt: fd.created_at, updatedAt: fd.updated_at,
+      })
     } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
   }
-  const d = { id: uuid(), ...parsed.data, isFavorite: false, properties: parsed.data.properties||[], views: parsed.data.views||[{ id: uuid(), name:'Table', type:'table'}], createdBy: (req as any).userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  const d = { ...parsed.data, id: parsed.data.id ?? uuid(), isFavorite: false, properties: parsed.data.properties||[], views: parsed.data.views||[{ id: uuid(), name:'Table', type:'table'}], createdBy: (req as any).userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
   db.databases.push(d); saveDB()
   res.status(201).json(d)
 })
@@ -355,6 +388,8 @@ app.patch('/api/databases/:id', authStub, async (req:any,res)=> {
     icon: z.string().max(50).optional(),
     description: z.string().max(2000).optional(),
     isFavorite: z.boolean().optional(),
+    properties: z.array(z.any()).optional(),
+    views: z.array(z.any()).optional(),
   }).safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
   if (usingPg) {
@@ -365,14 +400,30 @@ app.patch('/api/databases/:id', authStub, async (req:any,res)=> {
       if (parsed.data.icon !== undefined) { vals.push(parsed.data.icon); sets.push(`icon=$${vals.length}`) }
       if (parsed.data.description !== undefined) { vals.push(parsed.data.description); sets.push(`description=$${vals.length}`) }
       if (parsed.data.isFavorite !== undefined) { vals.push(parsed.data.isFavorite); sets.push(`is_favorite=$${vals.length}`) }
-      if (sets.length === 0) {
-        const rows = await pgQuery('SELECT * FROM databases WHERE id=$1', [req.params.id])
+      if (sets.length > 0) {
+        vals.push(req.params.id)
+        const rows = await pgQuery(`UPDATE databases SET ${sets.join(', ')}, updated_at=NOW() WHERE id=$${vals.length} RETURNING *`, vals)
         if (!rows[0]) return res.status(404).json({ error:'Not found' })
-        return res.json(rows[0])
+      } else {
+        const exists = await pgQuery('SELECT id FROM databases WHERE id=$1', [req.params.id])
+        if (!exists[0]) return res.status(404).json({ error:'Not found' })
       }
-      vals.push(req.params.id)
-      const rows = await pgQuery(`UPDATE databases SET ${sets.join(', ')}, updated_at=NOW() WHERE id=$${vals.length} RETURNING *`, vals)
-      if (!rows[0]) return res.status(404).json({ error:'Not found' })
+      // Wholesale schema replace (column add/rename/reorder from any client).
+      if (parsed.data.properties !== undefined) {
+        await pgQuery('DELETE FROM database_properties WHERE database_id=$1', [req.params.id])
+        for (const p of parsed.data.properties) {
+          await pgQuery('INSERT INTO database_properties(id, database_id, name, type, options, relation_database_id, width, visible) VALUES (COALESCE($1, gen_random_uuid()),$2,$3,$4,$5,$6,$7,$8)',
+            [isUuidLike(p.id) ? p.id : null, req.params.id, p.name, p.type, p.options ? JSON.stringify(p.options) : null, p.relationDatabaseId ?? null, p.width ?? null, p.visible ?? true])
+        }
+      }
+      if (parsed.data.views !== undefined) {
+        await pgQuery('DELETE FROM database_views WHERE database_id=$1', [req.params.id])
+        for (const v of parsed.data.views) {
+          await pgQuery('INSERT INTO database_views(id, database_id, name, type, filter, sort, group_by, visible_properties) VALUES (COALESCE($1, gen_random_uuid()),$2,$3,$4,$5,$6,$7,$8)',
+            [isUuidLike(v.id) ? v.id : null, req.params.id, v.name, v.type, v.filter ? JSON.stringify(v.filter) : null, v.sort ? JSON.stringify(v.sort) : null, v.groupBy ?? null, v.visibleProperties ? JSON.stringify(v.visibleProperties) : null])
+        }
+      }
+      const rows = await pgQuery('SELECT * FROM databases WHERE id=$1', [req.params.id])
       return res.json(rows[0])
     } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
   }
@@ -430,16 +481,24 @@ app.get('/api/databases/:id/records', authStub, async (req,res)=> {
   res.json({ rows: all.slice(start, start + pageSize), total: all.length, page, pageSize })
 })
 app.post('/api/databases/:id/records', authStub, async (req:any,res)=> {
+  const parsed = z.object({ id: uuidOrAbsent, properties: z.record(z.any()).optional(), pageId: z.string().optional() }).safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
   if (usingPg) {
     try {
       const cnt = await pgQuery('SELECT COUNT(*) AS n FROM database_records WHERE database_id=$1', [req.params.id])
       const pos = Number((cnt[0] as any)?.n ?? 0)
-      const rows = await pgQuery('INSERT INTO database_records(database_id, properties, page_id, position, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-        [req.params.id, JSON.stringify(req.body.properties ?? {}), req.body.pageId ?? null, pos, (req as any).userId])
+      const withId = !!parsed.data.id
+      const rows = await pgQuery(
+        withId
+          ? 'INSERT INTO database_records(id, database_id, properties, page_id, position, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *'
+          : 'INSERT INTO database_records(database_id, properties, page_id, position, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+        withId
+          ? [parsed.data.id, req.params.id, JSON.stringify(parsed.data.properties ?? {}), parsed.data.pageId ?? null, pos, (req as any).userId]
+          : [req.params.id, JSON.stringify(parsed.data.properties ?? {}), parsed.data.pageId ?? null, pos, (req as any).userId])
       return res.status(201).json(mapRecord(rows[0]))
     } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
   }
-  const rec = { id: uuid(), databaseId: req.params.id, properties: req.body.properties||{}, pageId: req.body.pageId, position: db.records.filter(r=> r.databaseId===req.params.id).length, createdBy: (req as any).userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  const rec = { id: parsed.data.id ?? uuid(), databaseId: req.params.id, properties: parsed.data.properties||{}, pageId: parsed.data.pageId, position: db.records.filter(r=> r.databaseId===req.params.id).length, createdBy: (req as any).userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
   db.records.push(rec); saveDB()
   res.status(201).json(rec)
 })
@@ -474,6 +533,69 @@ app.delete('/api/records/:id', authStub, async (req,res)=> {
   const idx = db.records.findIndex(x=> x.id===req.params.id)
   if (idx===-1) return res.status(404).json({ error:'Not found' })
   db.records.splice(idx,1); saveDB()
+  res.json({ ok:true })
+})
+
+// Sharing — bearer invite links per page (enforcement v1 = link secrecy).
+app.post('/api/pages/:id/shares', authStub, async (req:any,res)=> {
+  const parsed = z.object({
+    permission: z.enum(['view', 'comment', 'edit']).default('view'),
+    visibility: z.enum(['private', 'workspace', 'public']).default('workspace'),
+  }).safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
+  const token = crypto.randomBytes(24).toString('hex')
+  if (usingPg) {
+    try {
+      const exists = await pgQuery('SELECT id FROM pages WHERE id=$1', [req.params.id])
+      if (!exists[0]) return res.status(404).json({ error:'Not found' })
+      const rows = await pgQuery(
+        'INSERT INTO share_links(page_id, permission, visibility, token, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id, page_id, permission, visibility, token, created_at',
+        [req.params.id, parsed.data.permission, parsed.data.visibility, token, (req as any).userId],
+      )
+      const r: any = rows[0]
+      return res.status(201).json({ id: r.id, pageId: r.page_id, permission: r.permission, visibility: r.visibility, token: r.token, createdAt: r.created_at })
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  const page = db.pages.find(p=> p.id===req.params.id)
+  if (!page) return res.status(404).json({ error:'Not found' })
+  const link = { id: uuid(), pageId: req.params.id, permission: parsed.data.permission, visibility: parsed.data.visibility, token, createdBy: (req as any).userId, createdAt: new Date().toISOString() }
+  db.shares.push(link); saveDB()
+  res.status(201).json(link)
+})
+app.get('/api/pages/:id/shares', authStub, async (req,res)=> {
+  if (usingPg) {
+    try {
+      const rows = await pgQuery('SELECT id, page_id, permission, visibility, token, created_at FROM share_links WHERE page_id=$1 ORDER BY created_at DESC', [req.params.id])
+      return res.json(rows.map((r: any) => ({ id: r.id, pageId: r.page_id, permission: r.permission, visibility: r.visibility, token: r.token, createdAt: r.created_at })))
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  res.json(db.shares.filter(s=> s.pageId===req.params.id))
+})
+// Public: validate an invite token (no auth — the token IS the credential).
+app.get('/api/shares/:token', async (req,res)=> {
+  if (usingPg) {
+    try {
+      const rows = await pgQuery('SELECT page_id, permission, visibility FROM share_links WHERE token=$1', [req.params.token])
+      if (!rows[0]) return res.status(404).json({ error:'Invalid or revoked link' })
+      const r: any = rows[0]
+      return res.json({ pageId: r.page_id, permission: r.permission, visibility: r.visibility })
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  const link = db.shares.find(s=> s.token===req.params.token)
+  if (!link) return res.status(404).json({ error:'Invalid or revoked link' })
+  res.json({ pageId: link.pageId, permission: link.permission, visibility: link.visibility })
+})
+app.delete('/api/shares/:token', authStub, async (req,res)=> {
+  if (usingPg) {
+    try {
+      const out = await pgQuery('DELETE FROM share_links WHERE token=$1 RETURNING id', [req.params.token])
+      if (!out[0]) return res.status(404).json({ error:'Not found' })
+      return res.json({ ok:true })
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  const idx = db.shares.findIndex(s=> s.token===req.params.token)
+  if (idx===-1) return res.status(404).json({ error:'Not found' })
+  db.shares.splice(idx,1); saveDB()
   res.json({ ok:true })
 })
 

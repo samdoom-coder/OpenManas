@@ -46,9 +46,11 @@ server/*.db
 coverage/
 .nyc_output/
 
+# Throwaway verification scripts
+*.tmp.*
+
 # Misc
-.cache/
-.parcel-cache/
+.cache/.parcel-cache/
 .eslintcache
 .stylelintcache
 tmp/

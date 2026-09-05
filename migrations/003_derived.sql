@@ -1,4 +1,4 @@
--- Nexus 003: derived JSONB read-model for formula/rollup (see src/lib/databaseEngine.ts).
+-- OpenManas 003: derived JSONB read-model for formula/rollup (see src/lib/databaseEngine.ts).
 -- Server evaluates evaluateFormula/evaluateRollup on write and stores into `derived`.
 -- Mirrors `derived` field on DatabaseRecord in prisma/schema.prisma.
 -- Safe to re-run (IF NOT EXISTS).

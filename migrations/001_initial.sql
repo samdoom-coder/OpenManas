@@ -1,4 +1,4 @@
--- Nexus initial schema
+-- OpenManas initial schema
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 CREATE TABLE users (

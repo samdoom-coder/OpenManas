@@ -8,6 +8,21 @@ export interface StorageProvider {
   getUrl(key: string): string
 }
 
+const FILES_KEY = 'openmanas_files'
+const LEGACY_FILES_KEY = 'nexus_files' // pre-rebrand — migrated on first write
+
+function readMeta(): any[] {
+  try {
+    return JSON.parse(localStorage.getItem(FILES_KEY) ?? localStorage.getItem(LEGACY_FILES_KEY) ?? '[]')
+  } catch {
+    return []
+  }
+}
+function writeMeta(meta: any[]) {
+  localStorage.setItem(FILES_KEY, JSON.stringify(meta))
+  try { localStorage.removeItem(LEGACY_FILES_KEY) } catch { /* noop */ }
+}
+
 class LocalStorageProvider implements StorageProvider {
   id = 'local'
   name = 'Browser Storage (dev)'
@@ -16,24 +31,24 @@ class LocalStorageProvider implements StorageProvider {
     // create object URL for demo
     const url = URL.createObjectURL(file)
     // persist meta in localStorage
-    const meta = JSON.parse(localStorage.getItem('nexus_files') || '[]')
+    const meta = readMeta()
     meta.push({ key, name: file.name, size: file.size, type: file.type, url })
-    localStorage.setItem('nexus_files', JSON.stringify(meta))
+    writeMeta(meta)
     return { key, url }
   }
   async download(key: string) {
-    const meta = JSON.parse(localStorage.getItem('nexus_files') || '[]') as any[]
+    const meta = readMeta() as any[]
     const entry = meta.find(m => m.key === key)
     if (!entry) throw new Error('Not found')
     const res = await fetch(entry.url)
     return res.blob()
   }
   async delete(key: string) {
-    const meta = JSON.parse(localStorage.getItem('nexus_files') || '[]') as any[]
-    localStorage.setItem('nexus_files', JSON.stringify(meta.filter(m => m.key !== key)))
+    const meta = readMeta() as any[]
+    writeMeta(meta.filter(m => m.key !== key))
   }
   getUrl(key: string) {
-    const meta = JSON.parse(localStorage.getItem('nexus_files') || '[]') as any[]
+    const meta = readMeta() as any[]
     return meta.find(m => m.key === key)?.url ?? ''
   }
 }

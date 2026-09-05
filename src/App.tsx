@@ -6,6 +6,9 @@ import { Dashboard } from '@/pages/Dashboard'
 import { PageView } from '@/pages/PageView'
 import { DatabasePage } from '@/pages/DatabasePage'
 import { Settings } from '@/pages/Settings'
+import { Auth } from '@/pages/Auth'
+import { ShareDialog } from '@/components/features/ShareDialog'
+import { resolveShareToken } from '@/lib/sync'
 import { Toaster } from '@/components/ui/toast'
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
@@ -16,12 +19,37 @@ import { FileManager } from '@/components/features/FileManager'
 
 export default function App() {
   const { selectedPageId, selectedDatabaseId, setSelectedPage, setSelectedDatabase } = useAppStore()
-  const [route, setRoute] = useState<'dashboard'|'page'|'database'|'settings'|'templates'|'trash'|'files'|'graph'|'shared'>('dashboard')
-  const [showOnboarding, setShowOnboarding] = useState(()=> !localStorage.getItem('nexus_onboarded'))
+  const sessionToken = useAppStore((s) => s.token)
+  const [route, setRoute] = useState<'dashboard'|'page'|'database'|'settings'|'templates'|'trash'|'files'|'graph'|'shared'|'auth'>('dashboard')
+  const [showOnboarding, setShowOnboarding] = useState(()=> !localStorage.getItem('openmanas_onboarded'))
+
+  // Slice 2: with a stored session, pull shared state once on boot.
+  useEffect(()=> {
+    if (useAppStore.getState().token) void useAppStore.getState().pullFromServer()
+  }, [])
+  // Slice 3: after sign-in, consume a pending invite link.
+  useEffect(()=> {
+    if (!sessionToken) return
+    let t: string | null = null
+    try { t = localStorage.getItem('openmanas_pending_share'); localStorage.removeItem('openmanas_pending_share') } catch { /* noop */ }
+    if (t) void joinShare(t)
+  }, [sessionToken])
+  // Slice 3: invite-link join flow (#/join/<token>).
+  useEffect(()=> {
+    const m = window.location.hash.match(/^#\/join\/([a-f0-9]+)/i)
+    if (!m) return
+    const t = m[1]
+    window.location.hash = ''
+    if (useAppStore.getState().token) void joinShare(t)
+    else {
+      try { localStorage.setItem('openmanas_pending_share', t) } catch { /* noop */ }
+      setRoute('auth')
+    }
+  }, [])
 
   const navigate = (r: string) => {
     // clear selections when navigating to non-page/db routes
-    if (['dashboard','templates','trash','files','graph','shared','settings'].includes(r)) {
+    if (['dashboard','templates','trash','files','graph','shared','settings','auth'].includes(r)) {
       setSelectedPage(null); setSelectedDatabase(null)
     }
     setRoute(r as any)
@@ -53,6 +81,7 @@ export default function App() {
           {route==='page' && selectedPageId && <PageView pageId={selectedPageId} />}
           {route==='database' && selectedDatabaseId && <DatabasePage databaseId={selectedDatabaseId} />}
           {route==='settings' && <Settings />}
+          {route==='auth' && <Auth onNavigate={navigate as any} />}
           {route==='templates' && <Templates />}
           {route==='trash' && <Trash />}
           {route==='shared' && <Shared />}
@@ -64,8 +93,9 @@ export default function App() {
 
       <CommandPalette />
       <GlobalSearch />
+      <ShareDialog />
       <Toaster />
-      <Onboarding open={showOnboarding} onClose={()=> { setShowOnboarding(false); localStorage.setItem('nexus_onboarded','1')}} />
+      <Onboarding open={showOnboarding} onClose={()=> { setShowOnboarding(false); localStorage.setItem('openmanas_onboarded','1')}} />
 
       <div className="fixed bottom-4 right-4 hidden lg:flex items-center gap-2">
         <button onClick={()=> useAppStore.getState().setCommandOpen(true)} className="px-3 py-2 rounded-xl bg-card border shadow text-xs">⌘K Commands</button>
@@ -76,8 +106,16 @@ export default function App() {
   )
 }
 
-function GraphRoute() {
-  const { pages, databases, blocks, records, setSelectedPage, setSelectedDatabase } = useAppStore()
+async function joinShare(t: string) {
+  try {
+    const r = await resolveShareToken(t)
+    useAppStore.getState().setSelectedPage(r.pageId)
+  } catch {
+    // invalid/revoked link — stay where we are
+  }
+}
+
+function GraphRoute() {  const { pages, databases, blocks, records, setSelectedPage, setSelectedDatabase } = useAppStore()
   const graph = buildGraph(pages, databases, blocks, records)
   return (
     <div className="max-w-[1100px] mx-auto p-6 md:p-8">

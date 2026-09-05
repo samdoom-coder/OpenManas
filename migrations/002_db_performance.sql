@@ -1,4 +1,4 @@
--- Nexus 002: database performance (Postgres path).
+-- OpenManas 002: database performance (Postgres path).
 -- Run after 001_initial.sql. Safe to re-run (IF NOT EXISTS).
 -- Frontend paginate() mirrors: LIMIT :pageSize OFFSET (:page-1)*:pageSize
 -- with stable ORDER BY position, id. Always return total via COUNT(*) OVER().

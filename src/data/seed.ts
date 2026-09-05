@@ -55,7 +55,7 @@ export function generateSeed(workspaceId: string, userId: string) {
   ])
 
   mkBlocks(design.id, [
-    { type: 'heading1', content: 'Design System — Nexus UI' },
+    { type: 'heading1', content: 'Design System — OpenManas UI' },
     { type: 'paragraph', content: 'Dark-first, soft neutrals, rounded 16px panels, generous whitespace. Inspired by Linear + Craft.' },
     { type: 'callout', content: '🎨 Tokens: --background, --card, --border, --primary. All theming via CSS variables.' },
   ])

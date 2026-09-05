@@ -12,7 +12,7 @@ const sync = (over: Partial<SyncBlock> & { id: string }): SyncBlock => ({
 
 describe('docNameForPage', () => {
   it('is stable and namespaced', () => {
-    expect(docNameForPage('abc')).toBe('nexus-page-abc')
+    expect(docNameForPage('abc')).toBe('openmanas-page-abc')
     expect(docNameForPage('abc')).toBe(docNameForPage('abc'))
   })
 })

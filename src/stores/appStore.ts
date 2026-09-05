@@ -6,6 +6,35 @@ import { getRecordTitle } from '@/lib/propertyDefs'
 import type { AppSettings, ThemeMode } from '@/lib/settings'
 import { loadSettings, saveSettings, applyAllSettings, applyThemeMode, resolveTheme, applyFont, applyCompact } from '@/lib/settings'
 import { storageService } from '@/lib/storageService'
+import { loadSession, saveSession, clearSession, signInRequest, signUpRequest } from '@/lib/api'
+import { migrateStateIds } from '@/lib/ids'
+import type { SyncStatus } from '@/lib/sync'
+import {
+  onSyncStatus, queuePush, pushNow,
+  fetchWorkspaces, createRemoteWorkspace, pullWorkspace,
+  postPage, patchPage, deletePageRemote,
+  postBlock, patchBlock, deleteBlockRemote, reorderRemoteBlocks, reconcilePageBlocks,
+  postDatabase, patchDatabase, deleteDatabaseRemote,
+  postRecord, patchRecord, deleteRecordRemote,
+} from '@/lib/sync'
+
+/** True when mutations should also hit the API (slice 2). */
+function serverMode(): boolean {
+  try {
+    const s = useAppStore.getState()
+    return !!s.token && s.backendMode === 'server'
+  } catch {
+    return false
+  }
+}
+
+/** Push a database's full schema (properties/views) after column edits. */
+function pushDbSchema(dbId: string) {
+  if (!serverMode()) return
+  const d = useAppStore.getState().databases.find((x) => x.id === dbId)
+  if (!d) return
+  queuePush(`dbschema:${dbId}`, () => patchDatabase(dbId, { properties: d.properties, views: d.views }))
+}
 
 interface AppState {
   user: User
@@ -74,12 +103,25 @@ interface AppState {
   deleteProperty: (dbId: string, propId: string) => void
   reorderProperty: (dbId: string, propId: string, direction: 'left' | 'right' | number) => void
   duplicateProperty: (dbId: string, propId: string) => void
+  // session (slice 1: login against the API; data sync lands in slice 2)
+  token: string | null
+  backendMode: 'local' | 'server'
+  backendDb: string | null
+  signIn: (email: string, password?: string) => Promise<void>
+  signUp: (email: string, name: string, password?: string) => Promise<void>
+  signOut: () => void
+  setBackendStatus: (mode: 'local' | 'server', db: string | null) => void
+  // backend sync (slice 2: API is shared source of truth, localStorage is cache)
+  syncStatus: SyncStatus
+  lastSyncError: string | null
+  /** Pull shared state (or upload local on first run). No-op when logged out. */
+  pullFromServer: () => Promise<'up-to-date' | 'uploaded' | 'error' | 'local'>
   // other
   addActivity: (action: Activity['action'], targetId: string, targetType: string) => void
   addComment: (c: Omit<Comment,'id'|'createdAt'|'updatedAt'>) => void
 }
 
-const defaultUser: User = { id: 'u1', email: 'alex@nexus.so', name: 'Alex Rivera', avatar: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+const defaultUser: User = { id: 'u1', email: 'alex@openmanas.app', name: 'Alex Rivera', avatar: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
 const defaultWorkspace: Workspace = { id: 'w1', name: 'Acme Workspace', icon: '⬢', ownerId: 'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
 
 function defaultForProperty(p: DatabaseProperty): unknown {
@@ -103,23 +145,45 @@ function normalizePageIcon(p: Page): Page {  if (p.iconType) return p
   return { ...p, iconType: 'emoji' as const }
 }
 
+const STATE_KEY = 'openmanas_state_v1'
+const STATE_BACKUP_KEY = 'openmanas_state_backup'
+const LEGACY_STATE_KEY = 'nexus_state_v1' // pre-rebrand — read once, then dropped
+const IDS_FLAG = 'openmanas_ids_v2'
+
 function loadOrSeed() {
-  const saved = localStorage.getItem('nexus_state_v1')
+  const saved = localStorage.getItem(STATE_KEY) ?? localStorage.getItem(LEGACY_STATE_KEY)
   if (saved) {
     try {
       const parsed = JSON.parse(saved)
       if (parsed?.pages) parsed.pages = (parsed.pages as Page[]).map(normalizePageIcon)
-      return parsed
+      return ensureUuidIds(parsed)
     } catch {}
   }
   const seed = generateSeed(defaultWorkspace.id, defaultUser.id)
   seed.pages = (seed.pages as Page[]).map(normalizePageIcon)
-  return seed
+  return ensureUuidIds(seed)
+}
+
+/** One-time rewrite of legacy non-UUID entity ids (Postgres needs UUIDs). */
+function ensureUuidIds<T>(state: T): T {
+  try {
+    if (localStorage.getItem(IDS_FLAG)) return state
+    const { state: next, changed } = migrateStateIds(state as any)
+    if (changed) {
+      try { localStorage.setItem(STATE_KEY, JSON.stringify(next)) } catch { /* quota */ }
+    }
+    localStorage.setItem(IDS_FLAG, '1')
+    return next as T
+  } catch {
+    return state
+  }
 }
 
 const seedData = loadOrSeed()
 const initialSettings = loadSettings()
-// restore profile (persisted going forward inside nexus_state_v1)
+// restore persisted API session (slice 1); data sync lands in slice 2
+const storedSession = (() => { try { return loadSession() } catch { return null } })()
+// restore profile (persisted going forward inside openmanas_state_v1)
 const initialUser: User = (seedData.user as User) ?? defaultUser
 const initialWorkspace: Workspace = (seedData.workspace as Workspace) ?? defaultWorkspace
 const initialThemeMode: ThemeMode = (seedData.themeMode as ThemeMode) ?? initialSettings.themeMode ?? 'dark'
@@ -142,7 +206,10 @@ if (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && 
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  user: initialUser,
+  user: storedSession ? { ...initialUser, ...storedSession.user } : initialUser,
+  token: storedSession?.token ?? null,
+  backendMode: storedSession ? 'server' : 'local',
+  backendDb: null,
   workspace: initialWorkspace,
   pages: seedData.pages as Page[],
   blocks: seedData.blocks as Block[],
@@ -209,6 +276,75 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(s => ({ workspace: { ...s.workspace, ...patch, updatedAt: new Date().toISOString() } }))
     persist(get())
   },
+  signIn: async (email, password) => {
+    const r = await signInRequest(email.trim(), password)
+    saveSession({ user: r.user, token: r.token })
+    set(s => ({ user: { ...s.user, ...r.user, updatedAt: new Date().toISOString() }, token: r.token, backendMode: 'server' as const }))
+    persist(get())
+    void get().pullFromServer()
+  },
+  signUp: async (email, name, password) => {
+    const r = await signUpRequest(email.trim(), name.trim(), password)
+    saveSession({ user: r.user, token: r.token })
+    set(s => ({ user: { ...s.user, ...r.user, updatedAt: new Date().toISOString() }, token: r.token, backendMode: 'server' as const }))
+    persist(get())
+    void get().pullFromServer()
+  },
+  signOut: () => {
+    clearSession()
+    set({ user: { ...defaultUser }, token: null, backendMode: 'local' as const, backendDb: null, selectedPageId: null, selectedDatabaseId: null })
+    persist(get())
+  },
+  setBackendStatus: (mode, db) => set({ backendMode: mode, backendDb: db }),
+  syncStatus: 'local',
+  lastSyncError: null,
+  pullFromServer: async () => {
+    if (!get().token) return 'local'
+    set({ syncStatus: 'syncing', lastSyncError: null })
+    try {
+      const workspaces = await fetchWorkspaces()
+      let ws = workspaces[0]
+      if (!ws) {
+        // First run against this backend: create workspace, upload local state.
+        ws = await createRemoteWorkspace(get().workspace.name, get().workspace.icon)
+        const s = get()
+        for (const p of s.pages) {
+          await postPage({ ...p, workspaceId: ws.id } as Page).catch(() => {})
+          for (const b of s.blocks.filter((x) => x.pageId === p.id)) {
+            await postBlock(b).catch(() => {})
+          }
+        }
+        for (const d of s.databases) {
+          await postDatabase({ ...d, workspaceId: ws.id } as Database).catch(() => {})
+        }
+        for (const r of s.records) {
+          await postRecord(r).catch(() => {})
+        }
+        set({
+          workspace: { ...get().workspace, id: ws.id, name: ws.name ?? get().workspace.name },
+          syncStatus: 'synced',
+        })
+        persist(get())
+        return 'uploaded'
+      }
+      const pulled = await pullWorkspace(ws.id)
+      set({
+        workspace: { ...get().workspace, id: ws.id, name: ws.name ?? get().workspace.name, icon: ws.icon ?? get().workspace.icon },
+        pages: (pulled.pages as Page[]).map(normalizePageIcon),
+        blocks: pulled.blocks,
+        databases: pulled.databases,
+        records: pulled.records,
+        selectedPageId: null,
+        selectedDatabaseId: null,
+        syncStatus: 'synced',
+      })
+      persist(get())
+      return 'up-to-date'
+    } catch (e) {
+      set({ syncStatus: 'error', lastSyncError: e instanceof Error ? e.message : 'Sync failed' })
+      return 'error'
+    }
+  },
   updateSettings: (patch) => {
     const s = get()
     const merged: AppSettings = {
@@ -244,6 +380,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       blocks: s.blocks.filter(b => !ids.has(b.pageId)),
     }))
     persist(get())
+    if (serverMode()) for (const id of ids) pushNow(() => deletePageRemote(id))
     return trashed.length
   },
 
@@ -255,6 +392,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(s => ({ pages: [...s.pages, p], blocks: [...s.blocks, firstBlock], selectedPageId: p.id }))
     get().addActivity('page_created', p.id, 'page')
     persist(get())
+    if (serverMode()) pushNow(async () => { await postPage(p); await postBlock(firstBlock) })
     return p
   },
   createPageFromTemplate: (templateName, parentId=null) => {
@@ -279,6 +417,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(s => ({ pages: [...s.pages, p], blocks: [...s.blocks, ...newBlocks], selectedPageId: p.id }))
     get().addActivity('page_created', p.id, 'page')
     persist(get())
+    if (serverMode()) pushNow(async () => { await postPage(p); for (const b of newBlocks) await postBlock(b) })
     return p
   },
   movePage: (id, newParentId) => {
@@ -303,15 +442,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(s => ({ pages: s.pages.map(p => p.id === id ? { ...p, parentId: newParentId ?? null, updatedAt: new Date().toISOString() } : p) }))
     get().addActivity('page_updated', id, 'page')
     persist(get())
+    if (serverMode()) queuePush(`page:${id}`, () => patchPage(id, { parentId: newParentId ?? null }))
     return true
   },
   updatePage: (id, patch) => {
     set(s => ({ pages: s.pages.map(p => p.id===id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p)}))
     persist(get())
+    if (serverMode()) queuePush(`page:${id}`, () => patchPage(id, patch))
   },
   deletePage: (id) => {
     set(s => ({ pages: s.pages.map(p => p.id===id ? { ...p, isTrashed: true } : p)}))
     persist(get())
+    if (serverMode()) queuePush(`page:${id}`, () => patchPage(id, { isTrashed: true }))
   },
   duplicatePage: (id) => {
     const p = get().pages.find(x=>x.id===id)
@@ -323,14 +465,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newBlocks = blks.map(b=> ({ ...b, id: uid(), pageId: copy.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }))
     set(s=> ({ blocks: [...s.blocks, ...newBlocks]}))
     persist(get())
+    if (serverMode()) pushNow(async () => { await postPage(copy); for (const b of newBlocks) await postBlock(b) })
   },
   toggleFavorite: (id) => {
     set(s=> ({ pages: s.pages.map(p=> p.id===id ? { ...p, isFavorite: !p.isFavorite }:p)}))
     get().addActivity('page_favorited', id, 'page')
     persist(get())
+    if (serverMode()) {
+      const fav = get().pages.find(p=> p.id===id)?.isFavorite
+      queuePush(`page:${id}`, () => patchPage(id, { isFavorite: fav }))
+    }
   },
-  archivePage: (id) => set(s=> ({ pages: s.pages.map(p=> p.id===id?{...p, isArchived:true}:p)})),
-  restorePage: (id) => set(s=> ({ pages: s.pages.map(p=> p.id===id?{...p, isTrashed:false, isArchived:false}:p)})),
+  archivePage: (id) => { set(s=> ({ pages: s.pages.map(p=> p.id===id?{...p, isArchived:true}:p)})); if (serverMode()) queuePush(`page:${id}`, () => patchPage(id, { isArchived: true })) },
+  restorePage: (id) => { set(s=> ({ pages: s.pages.map(p=> p.id===id?{...p, isTrashed:false, isArchived:false}:p)})); if (serverMode()) queuePush(`page:${id}`, () => patchPage(id, { isTrashed: false, isArchived: false } as any)) },
 
   addBlock: (pageId, type, content='', pos) => {
     const blocksForPage = get().blocks.filter(b=>b.pageId===pageId)
@@ -343,6 +490,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
     get().addActivity('block_created', b.id, 'block')
     persist(get())
+    if (serverMode()) pushNow(() => postBlock(b))
     return b
   },
   restorePageBlocks: (pageId, snapshot) => {
@@ -355,15 +503,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       historyRev: s.historyRev + 1,
     }))
     persist(get())
+    if (serverMode()) queuePush(`reconcile:${pageId}`, () => reconcilePageBlocks(pageId, get().blocks.filter(b => b.pageId === pageId)), 1500)
   },
   updateBlock: (id, patch) => {
     set(s=> ({ blocks: s.blocks.map(b=> b.id===id?{...b, ...patch, updatedAt: new Date().toISOString()}:b)}))
     // debounce persist happens via effect
+    if (serverMode()) queuePush(`block:${id}`, () => patchBlock(id, patch))
   },
   deleteBlock: (id) => {
     set(s=> ({ blocks: s.blocks.filter(b=>b.id!==id)}))
     get().addActivity('block_deleted', id, 'block')
     persist(get())
+    if (serverMode()) pushNow(() => deleteBlockRemote(id))
   },
   moveBlock: (id, newPos) => {
     const bl = get().blocks.find(b=>b.id===id)
@@ -374,6 +525,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const reindexed = filtered.map((b,i)=> ({...b, position:i}))
     set(s=> ({ blocks: [...s.blocks.filter(b=>b.pageId!==bl.pageId), ...reindexed]}))
     persist(get())
+    if (serverMode()) queuePush(`reorder:${bl.pageId}`, () => reorderRemoteBlocks(bl.pageId, reindexed.map(b=> b.id)))
   },
   duplicateBlock: (id) => {
     const bl = get().blocks.find(b=>b.id===id)
@@ -381,6 +533,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const copy = { ...bl, id: uid(), position: bl.position+1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
     set(s=> ({ blocks: [...s.blocks.map(b=> b.pageId===bl.pageId && b.position>bl.position ? {...b, position:b.position+1}:b), copy]}))
     persist(get())
+    if (serverMode()) pushNow(() => postBlock(copy))
   },
 
   createDatabase: (name) => {
@@ -388,15 +541,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     const preferred = get().settings?.databases?.defaultView ?? 'table'
     const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
     const mkView = (type: typeof preferred) => ({ id: uid(), name: cap(type), type })
+    const propNameId = uid()
+    const propStatusId = uid()
     const views = preferred === 'table'
-      ? [mkView('table'), { id: uid(), name: 'Board', type: 'board' as const, groupBy: 'prop_status' }]
+      ? [mkView('table'), { id: uid(), name: 'Board', type: 'board' as const, groupBy: propStatusId }]
       : [mkView(preferred), mkView('table')]
     const db: Database = { id: uid(), workspaceId: get().workspace.id, name, icon: '▦', properties: [
-      { id: 'prop_name', name: 'Name', type: 'text', visible: true },
-      { id: 'prop_status', name: 'Status', type: 'status', options: ['Todo','Doing','Done'], visible: true },
+      { id: propNameId, name: 'Name', type: 'text', visible: true },
+      { id: propStatusId, name: 'Status', type: 'status', options: ['Todo','Doing','Done'], visible: true },
     ], views, createdBy: get().user.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
     set(s=> ({ databases: [...s.databases, db], selectedDatabaseId: db.id }))
     persist(get())
+    if (serverMode()) pushNow(() => postDatabase(db))
     return db
   },
   updateDatabase: (id, patch) => {
@@ -412,6 +568,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (Object.keys(clean).length === 0) return
     set(s=> ({ databases: s.databases.map(d=> d.id===id ? { ...d, ...clean, updatedAt: new Date().toISOString() } : d)}))
     persist(get())
+    if (serverMode()) queuePush(`db:${id}`, () => patchDatabase(id, clean))
   },
   toggleDatabaseFavorite: (id) => {
     const db = get().databases.find(d=> d.id===id)
@@ -426,12 +583,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     }))
     get().addActivity('database_deleted', id, 'database')
     persist(get())
+    if (serverMode()) pushNow(() => deleteDatabaseRemote(id))
   },
   createRecord: (dbId, props) => {
     const r: DatabaseRecord = { id: uid(), databaseId: dbId, properties: props, position: get().records.filter(x=>x.databaseId===dbId).length, createdBy: get().user.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
     set(s=> ({ records: [...s.records, r]}))
     get().addActivity('record_created', r.id, 'record')
     persist(get())
+    if (serverMode()) pushNow(() => postRecord(r))
     return r
   },
   importRecords: (dbId, rows) => {
@@ -446,6 +605,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(s => ({ records: [...s.records, ...created] }))
     get().addActivity('record_created', dbId, 'database')
     persist(get())
+    if (serverMode()) pushNow(async () => { for (const r of created) await postRecord(r) })
     return created
   },
   updateRecord: (id, props) => {
@@ -458,9 +618,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (titleProp && titleProp in props) {
         const t = getRecordTitle(db!, { properties: { ...rec.properties, ...props } })
         set(s=> ({ pages: s.pages.map(p=> p.id===rec.pageId ? { ...p, title: t, updatedAt: new Date().toISOString() } : p)}))
+        if (serverMode()) queuePush(`page:${rec.pageId}`, () => patchPage(rec.pageId!, { title: t }))
       }
     }
     persist(get())
+    if (serverMode()) queuePush(`record:${id}`, () => patchRecord(id, { properties: props }))
   },
   deleteRecord: (id) => {
     const rec = get().records.find(r=> r.id===id)
@@ -472,6 +634,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       comments: s.comments.filter(c=> c.recordId!==id),
     }))
     persist(get())
+    if (serverMode()) {
+      pushNow(() => deleteRecordRemote(id))
+      if (rec?.pageId) pushNow(() => deletePageRemote(rec.pageId!))
+    }
   },
   ensureRecordPage: (recordId) => {
     const rec = get().records.find(r=> r.id===recordId)
@@ -499,12 +665,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       records: s.records.map(r=> r.id===recordId ? { ...r, pageId: p.id } : r),
     }))
     persist(get())
+    if (serverMode()) pushNow(async () => { await postPage(p); await postBlock(firstBlock); await patchRecord(recordId, { pageId: p.id }) })
     return p
   },
 
   addProperty: (dbId, prop) => {
     const p: DatabaseProperty = {
-      id: `p_${uid()}`,
+      id: uid(),
       name: prop.name.trim() || 'Untitled',
       type: prop.type,
       options: prop.options ?? (['select', 'multi_select', 'status'].includes(prop.type) ? ['Option 1'] : undefined),
@@ -517,6 +684,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       records: s.records.map(r => r.databaseId === dbId ? { ...r, properties: { ...r.properties, [p.id]: defaultForProperty(p) } } : r),
     }))
     persist(get())
+    pushDbSchema(dbId)
     return p
   },
   updateProperty: (dbId, propId, patch) => {
@@ -541,6 +709,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }),
     }))
     persist(get())
+    pushDbSchema(dbId)
   },
   deleteProperty: (dbId, propId) => {
     set(s => ({
@@ -553,6 +722,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }),
     }))
     persist(get())
+    pushDbSchema(dbId)
   },
   reorderProperty: (dbId, propId, direction) => {
     set(s => ({
@@ -569,17 +739,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       }),
     }))
     persist(get())
+    pushDbSchema(dbId)
   },
   duplicateProperty: (dbId, propId) => {
     const db = get().databases.find(d => d.id === dbId)
     const orig = db?.properties.find(p => p.id === propId)
     if (!db || !orig) return
-    const copy: DatabaseProperty = { ...orig, id: `p_${uid()}`, name: `${orig.name} (copy)` }
+    const copy: DatabaseProperty = { ...orig, id: uid(), name: `${orig.name} (copy)` }
     set(s => ({
       databases: s.databases.map(d => d.id === dbId ? { ...d, properties: [...d.properties, copy], updatedAt: new Date().toISOString() } : d),
       records: s.records.map(r => r.databaseId === dbId ? { ...r, properties: { ...r.properties, [copy.id]: r.properties[propId] ?? defaultForProperty(copy) } } : r),
     }))
     persist(get())
+    pushDbSchema(dbId)
   },
 
   addActivity: (action, targetId, targetType) => {
@@ -599,8 +771,9 @@ function persist(state: any) {
       user: state.user, workspace: state.workspace,
       themeMode: state.themeMode ?? state.settings?.themeMode,
     }
-    localStorage.setItem('nexus_state_v1', JSON.stringify(toSave))
-    localStorage.setItem('nexus_state_backup', JSON.stringify({ ...toSave, at: new Date().toISOString()}))
+    localStorage.setItem(STATE_KEY, JSON.stringify(toSave))
+    localStorage.setItem(STATE_BACKUP_KEY, JSON.stringify({ ...toSave, at: new Date().toISOString()}))
+    try { localStorage.removeItem(LEGACY_STATE_KEY) } catch { /* noop */ }
     if (state.settings) saveSettings(state.settings)
   } catch {}
 }
@@ -610,4 +783,10 @@ let saveTimer:any
 useAppStore.subscribe((state)=>{
   clearTimeout(saveTimer)
   saveTimer = setTimeout(()=> persist(state), 400)
+})
+
+// backend push failures surface as sync status (slice 2)
+onSyncStatus((s, error) => {
+  if (s === 'local' || s === 'syncing') return
+  useAppStore.setState({ syncStatus: s, lastSyncError: s === 'error' ? (error ?? 'Sync failed') : null })
 })

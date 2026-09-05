@@ -16,7 +16,7 @@ async function main() {
     const { hashPassword } = await import('./auth.js')
     const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
     try {
-      const email = 'alex@nexus.so'
+      const email = 'alex@openmanas.app'
       const existing = await pool.query('SELECT id FROM users WHERE email=$1', [email])
       let userId: string
       if (existing.rows[0]) {
@@ -45,7 +45,7 @@ async function main() {
   }
   const seed = {
     workspaces: [{ id:'w1', name:'Acme Workspace', icon:'⬢', ownerId:'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()}],
-    users: [{ id:'u1', email:'alex@nexus.so', name:'Alex Rivera', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()}],
+    users: [{ id:'u1', email:'alex@openmanas.app', name:'Alex Rivera', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()}],
     pages: [],
     blocks: [],
     databases: [],

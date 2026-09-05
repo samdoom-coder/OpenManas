@@ -7,7 +7,7 @@
 import * as Y from 'yjs'
 import { create } from 'zustand'
 import type { Block } from './types'
-import { toSyncBlock, syncFingerprint, userColor, type SyncBlock } from './collabSync'
+import { toSyncBlock, syncFingerprint, userColor, docNameForPage, type SyncBlock } from './collabSync'
 
 export interface CollabPeer {
   clientId: number
@@ -35,9 +35,11 @@ export function resolveCollabUrl(settingsWs: string): string {
   return (settingsWs || '').trim()
 }
 
+import { getStoredToken } from './api'
+
 export function collabToken(): string {
   try {
-    return localStorage.getItem('nexus_token') || 'demo-token'
+    return getStoredToken() || 'demo-token'
   } catch {
     return 'demo-token'
   }
@@ -93,7 +95,7 @@ export class CollabSession {
     if (offline) {
       try {
         const { IndexeddbPersistence } = await import('y-indexeddb')
-        this.persistence = new IndexeddbPersistence(`nexus-page-${pageId}`, doc)
+        this.persistence = new IndexeddbPersistence(docNameForPage(pageId), doc)
       } catch (e) {
         console.warn('[collab] IndexedDB persistence unavailable', e)
       }
@@ -101,7 +103,7 @@ export class CollabSession {
 
     const { WebsocketProvider } = await import('y-websocket')
     if (this.destroyed) return
-    const provider = new WebsocketProvider(url, `nexus-page-${pageId}`, doc, {
+    const provider = new WebsocketProvider(url, docNameForPage(pageId), doc, {
       params: { token: collabToken() },
       connect: true,
     })

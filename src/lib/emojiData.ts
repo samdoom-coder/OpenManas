@@ -682,7 +682,7 @@ export function searchEmojis(query: string, limit = 120): EmojiEntry[] {
   return scored.slice(0, limit).map((s) => s.entry)
 }
 
-const RECENT_KEY = 'nexus_recent_emojis'
+const RECENT_KEY = 'openmanas_recent_emojis'
 const RECENT_MAX = 24
 
 export function getRecentEmojis(): string[] {

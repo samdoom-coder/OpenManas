@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { formatRelative } from '@/lib/utils'
 import { PageIconInline } from '@/components/ui/pageIcon'
 import { PresenceAvatars, CollabStatusDot } from '@/components/features/Presence'
+import { openShare } from '@/components/features/ShareDialog'
 
 export function Topbar() {
   const { pages, selectedPageId, selectedDatabaseId, databases, setCommandOpen, setSearchOpen, notifications } = useAppStore()
@@ -39,7 +40,7 @@ export function Topbar() {
         {page && (
           <>
             <Button variant="ghost" size="icon" onClick={()=> useAppStore.getState().toggleFavorite(page.id)}><Star size={16} className={page.isFavorite ? "fill-amber-400 text-amber-400" : ""}/></Button>
-            <Button variant="ghost" size="icon"><Share2 size={16}/></Button>
+            <Button variant="ghost" size="icon" title="Share" onClick={()=> openShare(page.id)}><Share2 size={16}/></Button>
             <Button variant="ghost" size="icon"><History size={16}/></Button>
             <Button variant="ghost" size="icon"><MoreHorizontal size={16}/></Button>
             <Button variant="secondary" size="sm" className="hidden sm:inline-flex"><Sparkles size={14} className="mr-1"/> Ask AI</Button>

@@ -3,7 +3,10 @@ import { twMerge } from "tailwind-merge"
 
 export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)) }
 
-export function uid() { return Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4) }
+import { newId } from './ids'
+
+/** Entity ids are UUIDs (Postgres-compatible). Use newId() for anything persisted. */
+export function uid() { return newId() }
 
 export function formatRelative(date: string) {
   const d = new Date(date)

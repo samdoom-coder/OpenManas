@@ -1,4 +1,4 @@
--- Nexus 004: pgvector semantic-search pipeline.
+-- OpenManas 004: pgvector semantic-search pipeline.
 -- Requires the pgvector extension on the Postgres host
 -- (managed providers: enable "vector" in the dashboard; self-hosted:
 -- CREATE EXTENSION vector needs superuser or the extension preinstalled).

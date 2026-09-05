@@ -10,6 +10,7 @@ import { ThemePicker } from '@/components/ui/themePicker'
 import { getPageTheme, pageThemeStyle, type PageThemeId } from '@/lib/pageThemes'
 import { resolveCover, clampCoverPosition, DEFAULT_COVER_POSITION } from '@/lib/coverData'
 import { PageIcon } from '@/components/ui/pageIcon'
+import { openShare } from '@/components/features/ShareDialog'
 
 export function PageView({ pageId }: { pageId: string }) {
   const { pages, updatePage, deletePage, duplicatePage, toggleFavorite, blocks, addBlock } = useAppStore()
@@ -92,6 +93,7 @@ export function PageView({ pageId }: { pageId: string }) {
           <span>Edited {new Date(page.updatedAt).toLocaleString()}</span>
           <span className="ml-auto flex items-center gap-1">
             <Button variant="ghost" size="sm" onClick={()=> commentsRef.current?.scrollIntoView({ behavior:'smooth'})}><MessageSquare size={14} className="mr-1"/> Comments</Button>
+            <Button variant="ghost" size="sm" onClick={()=> openShare(page.id)}><Share2 size={14} className="mr-1"/> Share</Button>
             <Button variant="ghost" size="icon" onClick={()=> toggleFavorite(page.id)}><Star size={16} className={page.isFavorite ? 'fill-amber-400 text-amber-400':''}/></Button>
           </span>
         </div>

@@ -113,7 +113,8 @@ export function Sidebar({ onNavigate, activeRoute }: { onNavigate?: (r:string)=>
         </div>
       </div>
 
-      <div className="p-3 border-t">
+      <div className="p-3 border-t space-y-2">
+        <AccountRow onNavigate={onNavigate} />
         <div className="rounded-2xl bg-gradient-to-br from-violet-600 via-indigo-600 to-blue-600 p-3 text-white">
           <div className="text-sm font-semibold flex items-center gap-1"><Sparkles size={14}/> OpenManas AI</div>
           <div className="text-xs opacity-80 mt-1">Ask anything across your workspace. Try “summarize my tasks”.</div>
@@ -126,6 +127,28 @@ export function Sidebar({ onNavigate, activeRoute }: { onNavigate?: (r:string)=>
 
 function buildTree(pages: any[]) {
   return pages
+}
+
+function AccountRow({ onNavigate }: { onNavigate?: (r: string) => void }) {
+  const { user, token, backendMode } = useAppStore()
+  const loggedIn = !!token
+  return (
+    <button
+      onClick={()=> onNavigate?.('auth')}
+      title={loggedIn ? 'Account' : 'Sign in'}
+      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl hover:bg-accent text-left"
+    >
+      <span className="w-8 h-8 rounded-xl bg-violet-500/15 grid place-items-center font-semibold text-violet-600 shrink-0">
+        {(user.name || user.email || '?').slice(0, 1).toUpperCase()}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium truncate">{loggedIn ? user.name : 'Local demo'}</span>
+        <span className="block text-[11px] text-muted-foreground truncate">
+          {loggedIn ? `${user.email} • server` : backendMode === 'server' ? 'Server session' : 'Sign in to sync →'}
+        </span>
+      </span>
+    </button>
+  )
 }
 
 function PageTreeNode({ node, tree, depth }: { node: any, tree: any[], depth: number }) {

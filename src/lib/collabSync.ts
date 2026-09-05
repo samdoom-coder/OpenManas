@@ -30,7 +30,7 @@ export function syncFingerprint(b: SyncBlock): string {
 
 /** Yjs room name for a page. Stable across clients + server. */
 export function docNameForPage(pageId: string): string {
-  return `nexus-page-${pageId}`
+  return `openmanas-page-${pageId}`
 }
 
 const PALETTE = [
