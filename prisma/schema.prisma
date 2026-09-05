@@ -1,4 +1,4 @@
-// Prisma schema — mirrors migrations/001_initial.sql + 002_db_performance.sql + 002_page_theme.sql + 003_derived.sql.
+// Prisma schema — mirrors migrations/001 + 002s + 003_derived + 004_pgvector + 005_db_favorite.
 // Runtime uses `pg` Pool (server/pg.ts) against the same tables so the app runs
 // with or without `prisma generate`. Run `npx prisma db push` or
 // `npm run db:migrate` (raw SQL) to provision Postgres, then set DATABASE_URL.
@@ -96,6 +96,7 @@ model Database {
   name        String
   icon        String?
   description String?
+  isFavorite  Boolean  @default(false) @map("is_favorite")
   createdBy   String?  @map("created_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz

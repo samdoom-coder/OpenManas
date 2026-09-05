@@ -67,6 +67,45 @@ describe('restorePageBlocks (undo backbone)', () => {
   })
 })
 
+describe('database management (rename/icon/favorite/delete)', () => {
+  it('renames and rejects blank names', () => {
+    const s = useAppStore.getState()
+    const db = s.createDatabase('RenameMe')
+    useAppStore.getState().updateDatabase(db.id, { name: '  Renamed  ' })
+    expect(useAppStore.getState().databases.find(d => d.id === db.id)?.name).toBe('Renamed')
+    useAppStore.getState().updateDatabase(db.id, { name: '   ' })
+    expect(useAppStore.getState().databases.find(d => d.id === db.id)?.name).toBe('Renamed')
+  })
+
+  it('sets icon and description', () => {
+    const db = useAppStore.getState().createDatabase('IconDb')
+    useAppStore.getState().updateDatabase(db.id, { icon: '🚀', description: 'Shiny' })
+    const after = useAppStore.getState().databases.find(d => d.id === db.id)
+    expect(after?.icon).toBe('🚀')
+    expect(after?.description).toBe('Shiny')
+  })
+
+  it('toggles favorite', () => {
+    const db = useAppStore.getState().createDatabase('FavDb')
+    expect(useAppStore.getState().databases.find(d => d.id === db.id)?.isFavorite).toBeFalsy()
+    useAppStore.getState().toggleDatabaseFavorite(db.id)
+    expect(useAppStore.getState().databases.find(d => d.id === db.id)?.isFavorite).toBe(true)
+    useAppStore.getState().toggleDatabaseFavorite(db.id)
+    expect(useAppStore.getState().databases.find(d => d.id === db.id)?.isFavorite).toBe(false)
+  })
+
+  it('deletes the database with its records and clears selection', () => {
+    const s = useAppStore.getState()
+    const db = s.createDatabase('DoomedDb')
+    useAppStore.getState().createRecord(db.id, { [db.properties[0].id]: 'x' })
+    expect(useAppStore.getState().selectedDatabaseId).toBe(db.id)
+    useAppStore.getState().deleteDatabase(db.id)
+    expect(useAppStore.getState().databases.some(d => d.id === db.id)).toBe(false)
+    expect(useAppStore.getState().records.some(r => r.databaseId === db.id)).toBe(false)
+    expect(useAppStore.getState().selectedDatabaseId).toBeNull()
+  })
+})
+
 describe('importRecords', () => {
   it('bulk-inserts rows with sequential positions', () => {
     const s = useAppStore.getState()

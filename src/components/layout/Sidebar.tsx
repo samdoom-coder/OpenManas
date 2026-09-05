@@ -8,6 +8,7 @@ export function Sidebar({ onNavigate, activeRoute }: { onNavigate?: (r:string)=>
   const { pages, databases, selectedPageId, selectedDatabaseId, setSelectedPage, setSelectedDatabase, createPage, workspace, sidebarCollapsed, toggleSidebar, user } = useAppStore()
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ Projects: true, Knowledge: true })
   const favorites = pages.filter(p=>p.isFavorite && !p.isTrashed)
+  const favDatabases = databases.filter(d=> d.isFavorite)
   const recent = [...pages].filter(p=>!p.isTrashed).sort((a,b)=> new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0,5)
 
   if (sidebarCollapsed) {
@@ -68,8 +69,10 @@ export function Sidebar({ onNavigate, activeRoute }: { onNavigate?: (r:string)=>
           <div className="space-y-0.5">
             {databases.map(db=> (
               <button key={db.id} onClick={()=> setSelectedDatabase(db.id)} className={cn("w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-sm hover:bg-accent", selectedDatabaseId===db.id ? "bg-accent font-medium" : "text-muted-foreground")}>
-                <Database size={14}/> {db.name}
-                <span className="ml-auto text-xs bg-muted px-1.5 rounded-md">{db.properties.length}</span>
+                <span className="w-5 text-center shrink-0">{db.icon || <Database size={14} className="mx-auto"/>}</span>
+                <span className="truncate flex-1 text-left">{db.name}</span>
+                {db.isFavorite && <Star size={12} className="text-amber-500 fill-amber-400 shrink-0"/>}
+                <span className="text-xs bg-muted px-1.5 rounded-md shrink-0">{db.properties.length}</span>
               </button>
             ))}
           </div>
@@ -77,10 +80,15 @@ export function Sidebar({ onNavigate, activeRoute }: { onNavigate?: (r:string)=>
 
         <div>
           <div className="px-2 mb-1 text-[11px] font-semibold tracking-widest text-muted-foreground uppercase">Favorites</div>
-          {favorites.length===0 ? <div className="px-2.5 py-2 text-xs text-muted-foreground rounded-xl border border-dashed">No favorites yet</div> :
+          {favorites.length===0 && favDatabases.length===0 ? <div className="px-2.5 py-2 text-xs text-muted-foreground rounded-xl border border-dashed">No favorites yet</div> :
             <div className="space-y-0.5">{favorites.map(p=> (
               <button key={p.id} onClick={()=> setSelectedPage(p.id)} className={cn("w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-sm hover:bg-accent truncate", selectedPageId===p.id? "bg-accent":"")}>
                 <Star size={14} className="text-amber-500"/>{p.title}
+              </button>
+            ))}
+            {favDatabases.map(d=> (
+              <button key={d.id} onClick={()=> setSelectedDatabase(d.id)} className={cn("w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-sm hover:bg-accent truncate", selectedDatabaseId===d.id? "bg-accent":"")}>
+                <Star size={14} className="text-amber-500 shrink-0"/><span className="truncate">{d.icon ? `${d.icon} ${d.name}` : d.name}</span>
               </button>
             ))}</div>
           }

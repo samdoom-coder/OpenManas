@@ -3,6 +3,7 @@ import { Search, Command, Bell, Share2, Star, MoreHorizontal, History, Sparkles,
 import { Button } from '@/components/ui/button'
 import { formatRelative } from '@/lib/utils'
 import { PageIconInline } from '@/components/ui/pageIcon'
+import { PresenceAvatars, CollabStatusDot } from '@/components/features/Presence'
 
 export function Topbar() {
   const { pages, selectedPageId, selectedDatabaseId, databases, setCommandOpen, setSearchOpen, notifications } = useAppStore()
@@ -27,6 +28,8 @@ export function Topbar() {
           <span className="text-xs text-muted-foreground hidden lg:inline">Autosaved</span>
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
         </div>
+        <CollabStatusDot />
+        <PresenceAvatars />
 
         <button onClick={()=> setSearchOpen(true)} className="hidden sm:flex items-center gap-2 px-3 h-8 rounded-xl border bg-background hover:bg-accent text-sm text-muted-foreground">
           <Search size={14}/> Search <span className="ml-2 hidden lg:inline-flex items-center gap-1 border rounded-md px-1.5 py-0.5 text-xs">⌘K</span>

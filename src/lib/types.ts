@@ -115,6 +115,7 @@ export interface Database {
   name: string
   icon?: string
   description?: string
+  isFavorite?: boolean
   properties: DatabaseProperty[]
   views: DatabaseView[]
   createdBy: ID
@@ -197,7 +198,7 @@ export interface Activity {
   id: ID
   workspaceId: ID
   userId: ID
-  action: 'page_created' | 'page_updated' | 'block_created' | 'block_deleted' | 'record_created' | 'comment_added' | 'file_uploaded' | 'page_shared' | 'page_archived' | 'page_favorited' | 'database_created'
+  action: 'page_created' | 'page_updated' | 'block_created' | 'block_deleted' | 'record_created' | 'comment_added' | 'file_uploaded' | 'page_shared' | 'page_archived' | 'page_favorited' | 'database_created' | 'database_deleted'
   targetId: ID
   targetType: string
   metadata?: Record<string, unknown>

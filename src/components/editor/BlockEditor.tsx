@@ -14,12 +14,28 @@ import { EmojiPicker } from '@/components/ui/emojiPicker'
 import { PageIconInline } from '@/components/ui/pageIcon'
 import { FontPicker } from '@/components/ui/fontPicker'
 import { useBlockHistory } from '@/hooks/useBlockHistory'
+import { useCollabPage } from '@/hooks/useCollab'
+import { useCollabStore } from '@/lib/collabClient'
 import { fontFamilyCSS } from '@/lib/fonts'
 
 export function BlockEditor({ pageId }: { pageId: string }) {
   const { blocks, addBlock, updateBlock, deleteBlock, moveBlock, duplicateBlock } = useAppStore()
   const pageBlocks = blocks.filter(b=>b.pageId===pageId).sort((a,b)=> a.position-b.position)
   const { canUndo, canRedo, undo, redo } = useBlockHistory(pageId, pageBlocks)
+  const { setCursor } = useCollabPage(pageId, pageBlocks)
+  const peers = useCollabStore(s=> s.peers)
+  const peersByBlock = (()=> {
+    const m = new Map<string, { name: string, color: string }[]>()
+    peers.forEach(p=> {
+      if (!p.blockId) return
+      if (!m.has(p.blockId)) m.set(p.blockId, [])
+      m.get(p.blockId)!.push({ name: p.name, color: p.color })
+    })
+    return m
+  })()
+  const handleFocusChange = (blockId: string) => (f: boolean) => {
+    setCursor(f ? blockId : null)
+  }
   const [slashFor, setSlashFor] = useState<string | null>(null)
   const [slashQuery, setSlashQuery] = useState('')
   const [dragId, setDragId] = useState<string | null>(null)
@@ -65,8 +81,22 @@ export function BlockEditor({ pageId }: { pageId: string }) {
     <div className="space-y-1 py-2">
       {historyBar}
       {pageBlocks.map((block, idx)=> (
-        <BlockRow
-          key={block.id}
+        <div key={block.id} className="relative">
+          {(() => {
+            const here = peersByBlock.get(block.id) ?? []
+            if (here.length === 0) return null
+            return (
+              <>
+                <div className="absolute inset-0 rounded-xl border-2 pointer-events-none" style={{ borderColor: here[0].color, opacity: 0.7 }} />
+                <div className="absolute -top-2 right-2 z-10 flex gap-1">
+                  {here.map(h=> (
+                    <span key={h.name + h.color} className="px-1.5 py-0.5 rounded-md text-[10px] font-semibold text-white shadow" style={{ background: h.color }}>{h.name}</span>
+                  ))}
+                </div>
+              </>
+            )
+          })()}
+          <BlockRow
           block={block}
           index={idx}
           onChange={(patch)=> updateBlock(block.id, patch)}
@@ -77,6 +107,7 @@ export function BlockEditor({ pageId }: { pageId: string }) {
           slashOpen={slashFor===block.id}
           slashQuery={slashQuery}
           closeSlash={()=> setSlashFor(null)}
+          onFocusChange={handleFocusChange(block.id)}
           dragId={dragId}
           setDragId={setDragId}
           onDrop={(dragId, targetId)=> {
@@ -88,6 +119,7 @@ export function BlockEditor({ pageId }: { pageId: string }) {
           onAddBelow={()=> handleNew(idx+1, 'paragraph')}
           onMarkdown={(newType, newContent)=> updateBlock(block.id, { type: newType as any, content: newContent })}
         />
+        </div>
       ))}
       <button onClick={()=> handleNew()} className="mt-4 flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-muted-foreground hover:bg-accent border border-dashed w-full justify-center">
         + Add block — type “/” for commands
@@ -106,13 +138,14 @@ function EmptyBlockState({ onClick }: { onClick: ()=>void }) {
   )
 }
 
-function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, slashOpen, slashQuery, closeSlash, dragId, setDragId, onDrop, onEnter, onAddBelow, onMarkdown }: {
+function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, slashOpen, slashQuery, closeSlash, onFocusChange, dragId, setDragId, onDrop, onEnter, onAddBelow, onMarkdown }: {
   block: Block, index:number, onChange:(p:Partial<Block>)=>void, onDelete:()=>void, onDuplicate:()=>void, onMove:(d:'up'|'down')=>void,
-  onSlash:(q:string)=>void, slashOpen:boolean, slashQuery:string, closeSlash:()=>void,
+  onSlash:(q:string)=>void, slashOpen:boolean, slashQuery:string, closeSlash:()=>void, onFocusChange?:(focused:boolean)=>void,
   dragId:string|null, setDragId:(id:string|null)=>void, onDrop:(a:string,b:string)=>void, onEnter:(nextType?:string)=>void, onAddBelow:()=>void, onMarkdown:(t:string,c:string)=>void
 }) {
   const contentRef = useRef<HTMLDivElement>(null)
   const [focused, setFocused] = useState(false)
+  const setF = (v: boolean) => { setFocused(v); onFocusChange?.(v) }
   const [showToolbar, setShowToolbar] = useState(false)
   const [colorOpen, setColorOpen] = useState(false)
   const [commentOpen, setCommentOpen] = useState(false)
@@ -617,8 +650,8 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
             ref={contentRef}
             contentEditable
             suppressContentEditableWarning
-            onFocus={()=> {setFocused(true); setShowToolbar(true)}}
-            onBlur={()=> {setFocused(false); setTimeout(()=> setShowToolbar(false), 200)}}
+            onFocus={()=> {setF(true); setShowToolbar(true)}}
+            onBlur={()=> {setF(false); setTimeout(()=> setShowToolbar(false), 200)}}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
             onMouseUp={handleMouseUp}
@@ -764,8 +797,8 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
             ref={contentRef}
             contentEditable
             suppressContentEditableWarning
-            onFocus={()=> {setFocused(true); setShowToolbar(false)}}
-            onBlur={()=> setFocused(false)}
+            onFocus={()=> {setF(true); setShowToolbar(false)}}
+            onBlur={()=> setF(false)}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
             onMouseUp={handleMouseUp}
@@ -888,8 +921,8 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           ref={contentRef}
           contentEditable
           suppressContentEditableWarning
-          onFocus={()=> {setFocused(true); setShowToolbar(true)}}
-          onBlur={()=> {setFocused(false); setTimeout(()=> setShowToolbar(false), 200)}}
+          onFocus={()=> {setF(true); setShowToolbar(true)}}
+          onBlur={()=> {setF(false); setTimeout(()=> setShowToolbar(false), 200)}}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
           onMouseUp={handleMouseUp}

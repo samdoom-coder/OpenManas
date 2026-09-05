@@ -37,7 +37,7 @@ if (process.env.NODE_ENV === 'production' && jwtSecretIsDefault()) {
 }
 
 // Persistence: Postgres when DATABASE_URL is set, else JSON file (zero-setup dev).
-// Run `npm run db:migrate` once to apply migrations/001 + 002 + 003.
+// Run `npm run db:migrate` once to apply migrations/001 through 005.
 const DB_PATH = path.join(process.cwd(), 'server', 'db.json')
 type DB = {
   users: any[]
@@ -312,6 +312,7 @@ app.get('/api/databases', authStub, async (req,res)=> {
         : await pgQuery('SELECT d.*, (SELECT json_agg(p.*) FROM database_properties p WHERE p.database_id=d.id) AS props, (SELECT json_agg(v.*) FROM database_views v WHERE v.database_id=d.id) AS views FROM databases d ORDER BY updated_at DESC')
       return res.json(rows.map((d: any) => ({
         id: d.id, workspaceId: d.workspace_id, pageId: d.page_id ?? undefined, name: d.name, icon: d.icon, description: d.description,
+        isFavorite: d.is_favorite ?? false,
         properties: (d.props ?? []).map((p: any) => ({ id: p.id, name: p.name, type: p.type, options: p.options ?? undefined, relationDatabaseId: p.relation_database_id ?? undefined, width: p.width ?? undefined, visible: p.visible ?? true })),
         views: (d.views ?? []).map((v: any) => ({ id: v.id, name: v.name, type: v.type, filter: v.filter ?? undefined, sort: v.sort ?? undefined, groupBy: v.group_by ?? undefined, visibleProperties: v.visible_properties ?? undefined })),
         createdBy: d.created_by, createdAt: d.created_at, updatedAt: d.updated_at,
@@ -324,12 +325,12 @@ app.get('/api/databases', authStub, async (req,res)=> {
   res.json(dbs)
 })
 app.post('/api/databases', authStub, async (req:any,res)=> {
-  const schema = z.object({ workspaceId: z.string(), name: z.string().min(1), properties: z.array(z.any()).optional(), views: z.array(z.any()).optional() })
+  const schema = z.object({ workspaceId: z.string(), name: z.string().min(1).max(100), icon: z.string().max(50).optional(), description: z.string().max(2000).optional(), properties: z.array(z.any()).optional(), views: z.array(z.any()).optional() })
   const parsed = schema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
   if (usingPg) {
     try {
-      const d = await pgQuery('INSERT INTO databases(workspace_id, name, created_by) VALUES ($1,$2,$3) RETURNING *', [parsed.data.workspaceId, parsed.data.name, (req as any).userId])
+      const d = await pgQuery('INSERT INTO databases(workspace_id, name, icon, description, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *', [parsed.data.workspaceId, parsed.data.name, parsed.data.icon ?? null, parsed.data.description ?? null, (req as any).userId])
       const dbId = (d[0] as any).id
       for (const p of parsed.data.properties ?? []) {
         await pgQuery('INSERT INTO database_properties(database_id, name, type, options, relation_database_id, width, visible) VALUES ($1,$2,$3,$4,$5,$6,$7)',
@@ -341,12 +342,61 @@ app.post('/api/databases', authStub, async (req:any,res)=> {
           [dbId, v.name, v.type, v.filter ? JSON.stringify(v.filter) : null, v.sort ? JSON.stringify(v.sort) : null, v.groupBy ?? null, v.visibleProperties ? JSON.stringify(v.visibleProperties) : null])
       }
       const out = await pgQuery('SELECT * FROM databases WHERE id=$1', [dbId])
-      return res.status(201).json({ id: out[0].id, workspaceId: out[0].workspace_id, name: out[0].name, properties: parsed.data.properties ?? [], views, createdBy: out[0].created_by, createdAt: out[0].created_at, updatedAt: out[0].updated_at })
+      return res.status(201).json({ id: out[0].id, workspaceId: out[0].workspace_id, name: out[0].name, icon: out[0].icon, description: out[0].description, isFavorite: out[0].is_favorite ?? false, properties: parsed.data.properties ?? [], views, createdBy: out[0].created_by, createdAt: out[0].created_at, updatedAt: out[0].updated_at })
     } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
   }
-  const d = { id: uuid(), ...parsed.data, properties: parsed.data.properties||[], views: parsed.data.views||[{ id: uuid(), name:'Table', type:'table'}], createdBy: (req as any).userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  const d = { id: uuid(), ...parsed.data, isFavorite: false, properties: parsed.data.properties||[], views: parsed.data.views||[{ id: uuid(), name:'Table', type:'table'}], createdBy: (req as any).userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
   db.databases.push(d); saveDB()
   res.status(201).json(d)
+})
+app.patch('/api/databases/:id', authStub, async (req:any,res)=> {
+  const parsed = z.object({
+    name: z.string().min(1).max(100).optional(),
+    icon: z.string().max(50).optional(),
+    description: z.string().max(2000).optional(),
+    isFavorite: z.boolean().optional(),
+  }).safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
+  if (usingPg) {
+    try {
+      const sets: string[] = []
+      const vals: any[] = []
+      if (parsed.data.name !== undefined) { vals.push(parsed.data.name); sets.push(`name=$${vals.length}`) }
+      if (parsed.data.icon !== undefined) { vals.push(parsed.data.icon); sets.push(`icon=$${vals.length}`) }
+      if (parsed.data.description !== undefined) { vals.push(parsed.data.description); sets.push(`description=$${vals.length}`) }
+      if (parsed.data.isFavorite !== undefined) { vals.push(parsed.data.isFavorite); sets.push(`is_favorite=$${vals.length}`) }
+      if (sets.length === 0) {
+        const rows = await pgQuery('SELECT * FROM databases WHERE id=$1', [req.params.id])
+        if (!rows[0]) return res.status(404).json({ error:'Not found' })
+        return res.json(rows[0])
+      }
+      vals.push(req.params.id)
+      const rows = await pgQuery(`UPDATE databases SET ${sets.join(', ')}, updated_at=NOW() WHERE id=$${vals.length} RETURNING *`, vals)
+      if (!rows[0]) return res.status(404).json({ error:'Not found' })
+      return res.json(rows[0])
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  const found = db.databases.find(x=> x.id===req.params.id)
+  if (!found) return res.status(404).json({ error:'Not found' })
+  Object.assign(found, parsed.data, { updatedAt: new Date().toISOString() })
+  saveDB()
+  res.json(found)
+})
+app.delete('/api/databases/:id', authStub, async (req,res)=> {
+  if (usingPg) {
+    try {
+      // properties/views/records cascade via FK; record page links SET NULL.
+      const out = await pgQuery('DELETE FROM databases WHERE id=$1 RETURNING id', [req.params.id])
+      if (!out[0]) return res.status(404).json({ error:'Not found' })
+      return res.json({ ok:true })
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  const idx = db.databases.findIndex(x=> x.id===req.params.id)
+  if (idx===-1) return res.status(404).json({ error:'Not found' })
+  db.databases.splice(idx,1)
+  db.records = db.records.filter(r=> r.databaseId!==req.params.id)
+  saveDB()
+  res.json({ ok:true })
 })
 app.get('/api/databases/:id/records', authStub, async (req,res)=> {
   // Pagination contract (both backends): ?page&pageSize → {rows,total,page,pageSize},

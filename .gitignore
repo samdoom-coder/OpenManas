@@ -36,6 +36,7 @@ yarn-error.log*
 
 # Storage / DB
 server/db.json
+server/collab-data/
 server/db.sqlite
 server/*.db
 *.sqlite

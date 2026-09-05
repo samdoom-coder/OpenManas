@@ -327,7 +327,7 @@ export function Settings() {
 
           {tab === 'collaboration' && (
             <Card className="rounded-2xl">
-              <CardHeader><h3 className="font-semibold">Collaboration</h3><p className="text-xs text-muted-foreground">Presence + Yjs CRDT land in Phase 2 / Phase 7. Prefs are stored now so rollout is a switch.</p></CardHeader>
+              <CardHeader><h3 className="font-semibold">Collaboration</h3><p className="text-xs text-muted-foreground">Live Yjs sync is ready — run <code>npm run collab</code> (or <code>dev:all</code>), set the sync URL, enable presence. Empty URL = offline editing only.</p></CardHeader>
               <CardContent className="space-y-2 divide-y">
                 <Row label="Presence" desc="Avatars + live cursors (WebSocket)" right={
                   <div className="flex items-center gap-2"><Badge>Phase 7</Badge><Toggle label="Presence" checked={settings.collaboration.presence} onChange={v => updateSettings({ collaboration: { presence: v } })} /></div>
@@ -338,8 +338,8 @@ export function Settings() {
                 <div className="pt-3">
                   <label className="text-xs font-medium" htmlFor="ws-url">Sync server (Yjs WebSocket)</label>
                   <div className="flex gap-2 mt-1">
-                    <Input id="ws-url" placeholder="ws://localhost:1234" value={wsUrl} onChange={e => setWsUrl(e.target.value)} />
-                    <Button size="sm" onClick={() => { updateSettings({ collaboration: { wsUrl: wsUrl.trim() } }); push({ title: 'Sync URL saved', desc: 'Used when realtime ships.' }) }}>Save</Button>
+                    <Input id="ws-url" placeholder="ws://localhost:3002" value={wsUrl} onChange={e => setWsUrl(e.target.value)} />
+                    <Button size="sm" onClick={() => { updateSettings({ collaboration: { wsUrl: wsUrl.trim() } }); push({ title: 'Sync URL saved', desc: 'Editor connects live on next page open.' }) }}>Save</Button>
                   </div>
                 </div>
               </CardContent>

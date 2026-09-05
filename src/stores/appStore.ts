@@ -59,6 +59,9 @@ interface AppState {
   duplicateBlock: (id: string) => void
   // databases
   createDatabase: (name: string) => Database
+  updateDatabase: (id: string, patch: Partial<Pick<Database, 'name' | 'icon' | 'description' | 'isFavorite'>>) => void
+  toggleDatabaseFavorite: (id: string) => void
+  deleteDatabase: (id: string) => void
   createRecord: (dbId: string, props: Record<string, unknown>) => DatabaseRecord
   importRecords: (dbId: string, rows: Record<string, unknown>[]) => DatabaseRecord[]
   updateRecord: (id: string, props: Record<string, unknown>) => void
@@ -395,6 +398,34 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(s=> ({ databases: [...s.databases, db], selectedDatabaseId: db.id }))
     persist(get())
     return db
+  },
+  updateDatabase: (id, patch) => {
+    const clean: Partial<Database> = {}
+    if (patch.name !== undefined) {
+      const name = patch.name.trim().slice(0, 100)
+      if (!name) return
+      clean.name = name
+    }
+    if (patch.icon !== undefined) clean.icon = patch.icon.slice(0, 50)
+    if (patch.description !== undefined) clean.description = patch.description.slice(0, 2000)
+    if (patch.isFavorite !== undefined) clean.isFavorite = patch.isFavorite
+    if (Object.keys(clean).length === 0) return
+    set(s=> ({ databases: s.databases.map(d=> d.id===id ? { ...d, ...clean, updatedAt: new Date().toISOString() } : d)}))
+    persist(get())
+  },
+  toggleDatabaseFavorite: (id) => {
+    const db = get().databases.find(d=> d.id===id)
+    if (!db) return
+    get().updateDatabase(id, { isFavorite: !db.isFavorite })
+  },
+  deleteDatabase: (id) => {
+    set(s=> ({
+      databases: s.databases.filter(d=> d.id!==id),
+      records: s.records.filter(r=> r.databaseId!==id),
+      selectedDatabaseId: s.selectedDatabaseId===id ? null : s.selectedDatabaseId,
+    }))
+    get().addActivity('database_deleted', id, 'database')
+    persist(get())
   },
   createRecord: (dbId, props) => {
     const r: DatabaseRecord = { id: uid(), databaseId: dbId, properties: props, position: get().records.filter(x=>x.databaseId===dbId).length, createdBy: get().user.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
