@@ -17,6 +17,8 @@ import { useBlockHistory } from '@/hooks/useBlockHistory'
 import { useCollabPage } from '@/hooks/useCollab'
 import { useCollabStore } from '@/lib/collabClient'
 import { fontFamilyCSS } from '@/lib/fonts'
+import { acceptMatches } from '@/lib/fileRefs'
+import { previewUrl, kindOf, MAX_FILE_SIZE } from '@/components/features/FileManager'
 
 export function BlockEditor({ pageId }: { pageId: string }) {
   const { blocks, addBlock, updateBlock, deleteBlock, moveBlock, duplicateBlock } = useAppStore()
@@ -1159,9 +1161,20 @@ function FileUploadSimple({ onUpload, accept='*/*' }: { onUpload:(url:string)=>v
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (file.size > MAX_FILE_SIZE) {
+      push({ title: `Skipped ${file.name}`, desc: 'Over the 25MB limit.' })
+      return
+    }
     setUploading(true)
     try {
-      const { url } = await storageService.getActive().upload(file)
+      const { key, url } = await storageService.getActive().upload(file)
+      // Record in workspace files so it appears in FileManager + syncs.
+      try {
+        useAppStore.getState().addFile({
+          filename: file.name, mimeType: file.type || 'application/octet-stream',
+          size: file.size, storageKey: key, url,
+        })
+      } catch { /* record failure never blocks the embed */ }
       onUpload(url)
       push({ title:'File uploaded', desc: file.name })
     } catch(err:any) { push({ title:'Upload failed', desc: String(err.message) }) }
@@ -1173,6 +1186,7 @@ function FileUploadSimple({ onUpload, accept='*/*' }: { onUpload:(url:string)=>v
         <input type="file" accept={accept} hidden onChange={handleFile} />
         <span className="text-sm font-medium">{uploading ? 'Uploading...' : 'Upload file'}</span>
       </label>
+      <WorkspaceFilePicker accept={accept} onPick={onUpload} />
     </div>
   )
 }
@@ -1184,9 +1198,19 @@ function ImageUpload({ onUpload, onUrl }: { onUpload:(url:string)=>void, onUrl:(
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (file.size > MAX_FILE_SIZE) {
+      push({ title: `Skipped ${file.name}`, desc: 'Over the 25MB limit.' })
+      return
+    }
     setUploading(true)
     try {
-      const { url } = await storageService.getActive().upload(file)
+      const { key, url } = await storageService.getActive().upload(file)
+      try {
+        useAppStore.getState().addFile({
+          filename: file.name, mimeType: file.type || 'image/*',
+          size: file.size, storageKey: key, url,
+        })
+      } catch { /* record failure never blocks the embed */ }
       onUpload(url)
       push({ title:'Image uploaded', desc: file.name })
     } catch(err:any) { push({ title:'Upload failed', desc: String(err.message) }) }
@@ -1208,6 +1232,43 @@ function ImageUpload({ onUpload, onUrl }: { onUpload:(url:string)=>void, onUrl:(
             <Button size="sm" disabled={!url} onClick={()=> onUrl(url)}>Add</Button>
           </div>
         </div>
+      </div>
+      <WorkspaceFilePicker accept="image/*" onPick={onUpload} />
+    </div>
+  )
+}
+
+// Pick an already-uploaded workspace file instead of uploading bytes again.
+// Only lists files with a resolvable URL on this device.
+function WorkspaceFilePicker({ accept, onPick }: { accept?: string; onPick:(url:string)=>void }) {
+  const { files, workspace } = useAppStore()
+  const options = files
+    .filter(f => (f.workspaceId === workspace.id || !f.workspaceId) && acceptMatches(accept, f.mimeType, f.filename))
+    .map(f => ({ f, url: previewUrl(f) }))
+    .filter(x => x.url)
+    .slice(0, 8)
+  if (options.length === 0) return null
+  return (
+    <div className="mt-3">
+      <div className="text-[11px] font-medium text-muted-foreground mb-1.5">Or choose from workspace files</div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {options.map(({ f, url }) => (
+          <button
+            key={f.id}
+            onClick={() => onPick(url)}
+            title={`${f.filename} — use in this block`}
+            className="group flex flex-col items-center gap-1 p-1.5 rounded-lg border bg-background hover:bg-accent min-w-0"
+          >
+            {kindOf(f.mimeType) === 'image' ? (
+              <img src={url} alt="" className="w-full h-10 object-cover rounded-md bg-muted" />
+            ) : (
+              <span className="w-full h-10 rounded-md bg-muted grid place-items-center text-[10px] font-mono uppercase text-muted-foreground">
+                {f.filename.split('.').pop()?.slice(0, 4) || 'file'}
+              </span>
+            )}
+            <span className="w-full text-[10px] truncate text-muted-foreground group-hover:text-foreground">{f.filename}</span>
+          </button>
+        ))}
       </div>
     </div>
   )

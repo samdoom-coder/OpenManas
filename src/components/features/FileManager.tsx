@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Upload, File, Image as ImageIcon, Video, Music, FileText, Trash2, Search, RefreshCw } from 'lucide-react'
+import { Upload, File, Image as ImageIcon, Video, Music, FileText, Trash2, Search, RefreshCw, Plus, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
 import { useAppStore } from '@/stores/appStore'
 import { storageService } from '@/lib/storageService'
+import { blockTypeForMime } from '@/lib/fileRefs'
 import { useToast } from '@/components/ui/toast'
 import type { FileAsset } from '@/lib/types'
 
-// Matches server FILE_MAX_SIZE default (25MB) so client rejects before upload.
-const MAX_SIZE = 25 * 1024 * 1024
+// Matches server FILE_MAX_SIZE default (25MB) so clients reject before upload.
+export const MAX_FILE_SIZE = 25 * 1024 * 1024
 
 export function formatSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
@@ -71,7 +72,7 @@ export function FileManager() {
     let done = 0
     for (const file of items) {
       try {
-        if (file.size > MAX_SIZE) {
+        if (file.size > MAX_FILE_SIZE) {
           push({ title: `Skipped ${file.name}`, desc: `Over the 25MB limit (${formatSize(file.size)}).` })
           continue
         }
@@ -96,6 +97,24 @@ export function FileManager() {
     useAppStore.getState().removeFile(f.id)
     if (preview?.id === f.id) setPreview(null)
     push({ title: `Deleted ${f.filename}` })
+  }
+
+  const useInPage = (f: FileAsset) => {
+    const st = useAppStore.getState()
+    const pageId = st.selectedPageId
+    const page = st.pages.find((p) => p.id === pageId)
+    if (!pageId || !page) {
+      push({ title: 'Open a page first', desc: 'Select a page, then attach this file to it.' })
+      return
+    }
+    const url = previewUrl(f)
+    if (!url) {
+      push({ title: 'No file bytes on this device', desc: 'Re-upload the file here first — metadata syncs, bytes stay local until object storage is configured.' })
+      return
+    }
+    const type = blockTypeForMime(f.mimeType)
+    st.addBlock(pageId, type, url)
+    push({ title: `Attached to ${page.title || 'Untitled'}`, desc: `${f.filename} added as a ${type} block.` })
   }
 
   const manualRefresh = async () => {
@@ -154,7 +173,7 @@ export function FileManager() {
             </div>
           )}
           {list.map(f => (
-            <FileRow key={f.id} file={f} onPreview={() => setPreview(f)} onDelete={() => remove(f)} />
+            <FileRow key={f.id} file={f} onPreview={() => setPreview(f)} onUseInPage={() => useInPage(f)} onDelete={() => remove(f)} />
           ))}
         </div>
       </div>
@@ -164,7 +183,7 @@ export function FileManager() {
   )
 }
 
-function FileRow({ file: f, onPreview, onDelete }: { file: FileAsset; onPreview: () => void; onDelete: () => void }) {
+function FileRow({ file: f, onPreview, onUseInPage, onDelete }: { file: FileAsset; onPreview: () => void; onUseInPage: () => void; onDelete: () => void }) {
   const kind = kindOf(f.mimeType)
   const url = previewUrl(f)
   const Icon = kind === 'image' ? ImageIcon : kind === 'video' ? Video : kind === 'audio' ? Music : kind === 'pdf' ? FileText : File
@@ -175,14 +194,17 @@ function FileRow({ file: f, onPreview, onDelete }: { file: FileAsset; onPreview:
           <img src={url} alt="" className="w-full h-full object-cover" />
         </button>
       ) : (
-        <span className="w-10 h-10 rounded-lg bg-muted grid place-items-center shrink-0">
+        <button onClick={onPreview} title="Preview" className="w-10 h-10 rounded-lg bg-muted grid place-items-center shrink-0 hover:ring-2 hover:ring-ring">
           <Icon size={16} />
-        </span>
+        </button>
       )}
-      <button onClick={kind === 'image' && url ? onPreview : undefined} className="flex-1 min-w-0 text-left">
+      <button onClick={onPreview} className="flex-1 min-w-0 text-left" title="Preview">
         <span className="block text-sm font-medium truncate">{f.filename}</span>
         <span className="block text-xs text-muted-foreground">{formatSize(f.size)} • {new Date(f.createdAt).toLocaleDateString()}</span>
       </button>
+      <Button variant="ghost" size="sm" onClick={onUseInPage} title="Attach to the open page">
+        <Plus size={14} className="mr-1" /> Page
+      </Button>
       <Button variant="ghost" size="sm" onClick={onDelete} title={`Delete ${f.filename}`} className="hover:text-red-600">
         <Trash2 size={14} />
       </Button>
@@ -192,13 +214,25 @@ function FileRow({ file: f, onPreview, onDelete }: { file: FileAsset; onPreview:
 
 function PreviewModal({ file: f, onClose }: { file: FileAsset; onClose: () => void }) {
   const url = previewUrl(f)
+  const kind = kindOf(f.mimeType)
   return (
     <Modal open onClose={onClose} title={f.filename} className="max-w-[720px]">
       <div className="space-y-3">
-        {url ? (
+        {!url ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">No preview available on this device — metadata syncs across devices, bytes stay local until object storage is configured.</div>
+        ) : kind === 'image' ? (
           <img src={url} alt={f.filename} className="w-full max-h-[60vh] object-contain rounded-xl bg-muted" />
+        ) : kind === 'video' ? (
+          <video src={url} controls className="w-full max-h-[60vh] rounded-xl bg-black" />
+        ) : kind === 'audio' ? (
+          <audio src={url} controls className="w-full" />
+        ) : kind === 'pdf' ? (
+          <iframe src={url} title={f.filename} className="w-full h-[60vh] rounded-xl border bg-muted" />
         ) : (
-          <div className="py-8 text-center text-sm text-muted-foreground">No preview available for this file.</div>
+          <div className="py-8 text-center">
+            <div className="text-sm text-muted-foreground mb-3">No inline preview for this file type.</div>
+            <Button variant="outline" size="sm" onClick={() => window.open(url, '_blank')}><ExternalLink size={14} className="mr-1" /> Open file</Button>
+          </div>
         )}
         <div className="text-xs text-muted-foreground">{f.mimeType} • {formatSize(f.size)} • {new Date(f.createdAt).toLocaleString()}</div>
       </div>

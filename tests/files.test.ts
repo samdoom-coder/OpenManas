@@ -10,6 +10,7 @@ const mem = new Map<string, string>()
 }
 
 const { formatSize, kindOf, previewUrl } = await import('../src/components/features/FileManager')
+const { blockTypeForMime, acceptMatches } = await import('../src/lib/fileRefs')
 const { useAppStore } = await import('../src/stores/appStore')
 const api = await import('../src/lib/api')
 const sync = await import('../src/lib/sync')
@@ -54,6 +55,30 @@ describe('previewUrl', () => {
     const f = { id: 'f1', workspaceId: 'w1', filename: 'a.png', mimeType: 'image/png', size: 10, storageKey: 'files/x', url: 'blob:abc', uploadedBy: 'u', createdAt: 't' }
     expect(previewUrl(f as never)).toBe('blob:abc')
     expect(previewUrl({ ...f, url: undefined } as never)).toBe('')
+  })
+})
+
+describe('blockTypeForMime', () => {
+  it('maps mime to the rendering block type', () => {
+    expect(blockTypeForMime('image/png')).toBe('image')
+    expect(blockTypeForMime('video/mp4')).toBe('video')
+    expect(blockTypeForMime('audio/mpeg')).toBe('audio')
+    expect(blockTypeForMime('application/pdf')).toBe('file')
+    expect(blockTypeForMime('')).toBe('file')
+  })
+})
+
+describe('acceptMatches', () => {
+  it('matches wildcards, prefixes, extensions, and lists', () => {
+    expect(acceptMatches(undefined, 'image/png', 'a.png')).toBe(true)
+    expect(acceptMatches('*/*', 'video/mp4', 'v.mp4')).toBe(true)
+    expect(acceptMatches('image/*', 'image/jpeg', 'a.jpg')).toBe(true)
+    expect(acceptMatches('image/*', 'application/pdf', 'a.pdf')).toBe(false)
+    expect(acceptMatches('audio/*', 'audio/mpeg', 's.mp3')).toBe(true)
+    expect(acceptMatches('.pdf', 'application/pdf', 'doc.PDF')).toBe(true)
+    expect(acceptMatches('.pdf', 'application/pdf', 'doc.txt')).toBe(false)
+    expect(acceptMatches('image/png, application/pdf', 'application/pdf', 'd.pdf')).toBe(true)
+    expect(acceptMatches('image/png', 'image/jpeg', 'a.jpg')).toBe(false)
   })
 })
 
