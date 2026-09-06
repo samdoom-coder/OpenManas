@@ -17,13 +17,28 @@ async function main() {
   }
   const { default: pg } = await import('pg')
   const pool = new pg.Pool({ connectionString: url })
+  // Every file under migrations/ is idempotent (IF NOT EXISTS), so re-running
+  // is safe. 004_pgvector.sql needs the pgvector extension; skipped with a
+  // warning when the host doesn't provide it (semantic search still works
+  // client-side). NOTE: the two 002 files are intentionally both applied in
+  // this order (performance indexes, then page theme column).
+  const files = ['001_initial.sql', '002_db_performance.sql', '002_page_theme.sql', '003_derived.sql', '005_db_favorite.sql', '006_share_links.sql', '007_collab_indexes.sql', '008_activities_target_text.sql']
   try {
-    // 004_pgvector.sql needs the pgvector extension; skipped with a warning
-    // when the host doesn't provide it (semantic search still works client-side).
-    for (const file of ['001_initial.sql', '002_db_performance.sql', '002_page_theme.sql', '003_derived.sql', '005_db_favorite.sql', '006_share_links.sql']) {
+    for (const file of files) {
       const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', file), 'utf-8')
       console.log(`Applying ${file}...`)
-      await pool.query(sql)
+      try {
+        await pool.query(sql)
+      } catch (e) {
+        const msg = String((e as Error)?.message || e)
+        // Defensive: tolerate already-applied objects so a partially
+        // idempotent file can never block the rest of the chain.
+        if (/already exists|duplicate/i.test(msg)) {
+          console.warn(`  (already applied, continuing) ${msg.split('\n')[0]}`)
+          continue
+        }
+        throw e
+      }
     }
     try {
       const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', '004_pgvector.sql'), 'utf-8')

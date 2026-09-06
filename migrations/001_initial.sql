@@ -1,7 +1,11 @@
 -- OpenManas initial schema
+-- Idempotent: safe to re-run (`npm run db:migrate` applies every file on each
+-- run). Index names match what Postgres auto-generates for the original
+-- anonymous `CREATE INDEX ON ...` statements, so databases migrated with the
+-- pre-idempotent 001 keep working with zero duplicate indexes.
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
@@ -10,7 +14,7 @@ CREATE TABLE users (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE TABLE workspaces (
+CREATE TABLE IF NOT EXISTS workspaces (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   icon TEXT,
@@ -18,7 +22,7 @@ CREATE TABLE workspaces (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE TABLE workspace_members (
+CREATE TABLE IF NOT EXISTS workspace_members (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -26,7 +30,7 @@ CREATE TABLE workspace_members (
   joined_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(workspace_id, user_id)
 );
-CREATE TABLE pages (
+CREATE TABLE IF NOT EXISTS pages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
   parent_id UUID REFERENCES pages(id) ON DELETE SET NULL,
@@ -43,11 +47,11 @@ CREATE TABLE pages (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX ON pages(workspace_id);
-CREATE INDEX ON pages(parent_id);
-CREATE INDEX ON pages(updated_at);
+CREATE INDEX IF NOT EXISTS pages_workspace_id_idx ON pages(workspace_id);
+CREATE INDEX IF NOT EXISTS pages_parent_id_idx ON pages(parent_id);
+CREATE INDEX IF NOT EXISTS pages_updated_at_idx ON pages(updated_at);
 
-CREATE TABLE blocks (
+CREATE TABLE IF NOT EXISTS blocks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   page_id UUID REFERENCES pages(id) ON DELETE CASCADE,
   parent_id UUID REFERENCES blocks(id) ON DELETE SET NULL,
@@ -58,10 +62,10 @@ CREATE TABLE blocks (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX ON blocks(page_id);
-CREATE INDEX ON blocks(position);
+CREATE INDEX IF NOT EXISTS blocks_page_id_idx ON blocks(page_id);
+CREATE INDEX IF NOT EXISTS blocks_position_idx ON blocks(position);
 
-CREATE TABLE databases (
+CREATE TABLE IF NOT EXISTS databases (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
   page_id UUID REFERENCES pages(id) ON DELETE SET NULL,
@@ -71,7 +75,7 @@ CREATE TABLE databases (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE TABLE database_properties (
+CREATE TABLE IF NOT EXISTS database_properties (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   database_id UUID REFERENCES databases(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
@@ -80,14 +84,14 @@ CREATE TABLE database_properties (
   relation_database_id UUID REFERENCES databases(id),
   width INT, visible BOOLEAN DEFAULT true
 );
-CREATE TABLE database_views (
+CREATE TABLE IF NOT EXISTS database_views (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   database_id UUID REFERENCES databases(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   type TEXT CHECK (type IN ('table','board','calendar','gallery','list','timeline')),
   filter JSONB, sort JSONB, group_by UUID, visible_properties JSONB
 );
-CREATE TABLE database_records (
+CREATE TABLE IF NOT EXISTS database_records (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   database_id UUID REFERENCES databases(id) ON DELETE CASCADE,
   properties JSONB DEFAULT '{}',
@@ -97,15 +101,15 @@ CREATE TABLE database_records (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX ON database_records(database_id);
-CREATE TABLE files (
+CREATE INDEX IF NOT EXISTS database_records_database_id_idx ON database_records(database_id);
+CREATE TABLE IF NOT EXISTS files (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
   filename TEXT, mime_type TEXT, size INT, storage_key TEXT,
   uploaded_by UUID REFERENCES users(id),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE TABLE comments (
+CREATE TABLE IF NOT EXISTS comments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   page_id UUID REFERENCES pages(id) ON DELETE CASCADE,
   block_id UUID REFERENCES blocks(id) ON DELETE CASCADE,
@@ -115,21 +119,21 @@ CREATE TABLE comments (
   parent_id UUID REFERENCES comments(id),
   created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE TABLE notifications (
+CREATE TABLE IF NOT EXISTS notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   type TEXT, title TEXT, body TEXT, read BOOLEAN DEFAULT false, link TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE TABLE activities (
+CREATE TABLE IF NOT EXISTS activities (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
   user_id UUID REFERENCES users(id),
   action TEXT, target_id UUID, target_type TEXT, metadata JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX ON activities(workspace_id, created_at);
-CREATE TABLE page_versions (
+CREATE INDEX IF NOT EXISTS activities_workspace_id_created_at_idx ON activities(workspace_id, created_at);
+CREATE TABLE IF NOT EXISTS page_versions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   page_id UUID REFERENCES pages(id) ON DELETE CASCADE,
   version INT, blocks_snapshot JSONB, created_by UUID REFERENCES users(id), created_at TIMESTAMPTZ DEFAULT NOW()

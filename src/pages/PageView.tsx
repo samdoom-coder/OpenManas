@@ -2,8 +2,10 @@ import { useAppStore } from '@/stores/appStore'
 import { BlockEditor } from '@/components/editor/BlockEditor'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
-import { Star, Share2, MoreHorizontal, MessageSquare, History, Copy, Trash2, Archive, ImagePlus, MoveVertical, ArrowUp, ArrowDown, FolderInput, Palette } from 'lucide-react'
+import { Star, Share2, MoreHorizontal, MessageSquare, History, Copy, Trash2, Archive, ImagePlus, MoveVertical, ArrowUp, ArrowDown, FolderInput, Palette, Plus, RotateCcw, ChevronDown } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo } from 'react'
+import { useToast } from '@/components/ui/toast'
+import { diffBlocks, summarizeDiff, type BlockChange } from '@/lib/versions'
 import { IconPicker } from '@/components/ui/iconPicker'
 import { CoverPicker } from '@/components/ui/coverPicker'
 import { ThemePicker } from '@/components/ui/themePicker'
@@ -479,22 +481,117 @@ function CommentSection({ pageId }: { pageId:string }) {
 }
 
 function PageVersionHistory({ pageId }: { pageId:string }) {
+  const { versions, blocks, captureVersion, restoreVersion, user } = useAppStore()
+  const { push } = useToast()
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const list = useMemo(() => [...(versions[pageId] ?? [])].sort((a, b) => b.version - a.version), [versions, pageId])
+  const current = useMemo(() => blocks.filter(b => b.pageId === pageId).sort((a, b) => a.position - b.position), [blocks, pageId])
+  const openVersion = list.find(v => v.id === openId) ?? null
+  const changes: BlockChange[] = useMemo(
+    () => (openVersion ? diffBlocks(openVersion.blocksSnapshot, current) : []),
+    [openVersion, current],
+  )
+  const summary = useMemo(() => summarizeDiff(changes), [changes])
+
+  const snapshotNow = () => {
+    const v = captureVersion(pageId, 'Manual snapshot')
+    if (v) {
+      setOpenId(v.id)
+      push({ title: `Snapshot v${v.version} saved`, desc: `${v.blocksSnapshot.length} blocks captured.` })
+    }
+  }
+  const doRestore = (versionId: string, versionNum: number) => {
+    if (confirmId !== versionId) {
+      setConfirmId(versionId)
+      return
+    }
+    setConfirmId(null)
+    const ok = restoreVersion(pageId, versionId)
+    push(ok
+      ? { title: `Restored to v${versionNum}`, desc: 'A safety snapshot was saved first — you can undo via history.' }
+      : { title: 'Restore failed', desc: 'That snapshot no longer exists.' })
+  }
+
   return (
     <div className="rounded-2xl border p-4 bg-card">
-      <div className="flex items-center gap-2 font-medium text-sm"><History size={16}/> Version history</div>
-      <div className="text-xs text-muted-foreground mt-1">Autosaved versions. Restore any point in time.</div>
+      <div className="flex items-center gap-2">
+        <span className="flex items-center gap-2 font-medium text-sm"><History size={16}/> Version history</span>
+        <span className="text-xs text-muted-foreground">{list.length > 0 ? `${list.length} snapshot${list.length === 1 ? '' : 's'}` : 'No snapshots yet'}</span>
+        <Button variant="outline" size="sm" className="ml-auto" onClick={snapshotNow}><Plus size={14} className="mr-1"/> Snapshot now</Button>
+      </div>
+      <div className="text-xs text-muted-foreground mt-1">Auto-snapshots every 10 minutes of editing (max 20 per page). Restoring saves a safety snapshot first.</div>
+      {list.length === 0 && (
+        <div className="mt-3 py-6 text-center text-sm text-muted-foreground border rounded-xl border-dashed">
+          Edit the page or take a snapshot to start tracking history.
+        </div>
+      )}
       <div className="mt-3 space-y-2">
-        {[
-          { v: 12, at: new Date().toLocaleString(), by: 'You' },
-          { v: 11, at: new Date(Date.now()-3600000).toLocaleString(), by: 'You' },
-          { v: 10, at: new Date(Date.now()-7200000).toLocaleString(), by: 'Alex' },
-        ].map(item=> (
-          <div key={item.v} className="flex items-center gap-3 p-2 rounded-xl hover:bg-accent text-sm">
-            <span className="w-8 h-8 rounded-lg bg-muted grid place-items-center font-mono text-xs">v{item.v}</span>
-            <span className="flex-1">{item.at} • {item.by}</span>
-            <Button variant="ghost" size="sm">Restore</Button>
-          </div>
-        ))}
+        {list.map(item=> {
+          const open = item.id === openId
+          return (
+            <div key={item.id} className="rounded-xl border overflow-hidden">
+              <div className="flex items-center gap-3 p-2 text-sm hover:bg-accent/50">
+                <button onClick={() => { setOpenId(open ? null : item.id); setConfirmId(null) }} className="flex flex-1 min-w-0 items-center gap-3 text-left">
+                  <span className="w-8 h-8 rounded-lg bg-muted grid place-items-center font-mono text-xs shrink-0">v{item.version}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block truncate">{new Date(item.createdAt).toLocaleString()} • {item.createdBy === user.id ? 'You' : 'Teammate'}</span>
+                    <span className="block text-[11px] text-muted-foreground truncate">{item.message || `${item.blocksSnapshot.length} blocks`}</span>
+                  </span>
+                  <ChevronDown size={14} className={`shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+                </button>
+                <Button
+                  variant={confirmId === item.id ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => doRestore(item.id, item.version)}
+                  onBlur={() => setConfirmId(null)}
+                >
+                  <RotateCcw size={14} className="mr-1"/> {confirmId === item.id ? 'Confirm?' : 'Restore'}
+                </Button>
+              </div>
+              {open && (
+                <div className="border-t bg-muted/20 px-3 py-2">
+                  <div className="flex flex-wrap gap-1.5 text-[11px] py-1">
+                    <DiffChip n={summary.added} label="added" tone="text-green-700 bg-green-500/10 border-green-500/30" />
+                    <DiffChip n={summary.removed} label="removed" tone="text-red-700 bg-red-500/10 border-red-500/30" />
+                    <DiffChip n={summary.changed} label="changed" tone="text-amber-700 bg-amber-500/10 border-amber-500/30" />
+                    <DiffChip n={summary.moved} label="moved" tone="text-blue-700 bg-blue-500/10 border-blue-500/30" />
+                    {summary.total === summary.unchanged && <span className="text-muted-foreground">Identical to current page.</span>}
+                  </div>
+                  <div className="max-h-[240px] overflow-auto space-y-1 py-1">
+                    {changes.filter(c => c.status !== 'unchanged').map(c => <DiffRow key={c.id} change={c} />)}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function DiffChip({ n, label, tone }: { n: number; label: string; tone: string }) {
+  if (n === 0) return null
+  return <span className={`px-2 py-0.5 rounded-full border font-medium ${tone}`}>+{n} {label}</span>
+}
+
+function DiffRow({ change: c }: { change: BlockChange }) {
+  const dot = c.status === 'added' ? 'bg-green-500' : c.status === 'removed' ? 'bg-red-500' : c.status === 'changed' ? 'bg-amber-500' : 'bg-blue-500'
+  return (
+    <div className="flex items-start gap-2 text-xs p-1.5 rounded-lg bg-background border">
+      <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${dot}`} />
+      <div className="flex-1 min-w-0">
+        <span className="font-mono text-[10px] text-muted-foreground uppercase">{c.type}</span>
+        {c.status === 'added' && <div className="truncate">+ {c.newText}</div>}
+        {c.status === 'removed' && <div className="truncate line-through text-muted-foreground">− {c.oldText}</div>}
+        {c.status === 'changed' && (
+          <>
+            <div className="truncate line-through text-muted-foreground">− {c.oldText}</div>
+            <div className="truncate">+ {c.newText}</div>
+          </>
+        )}
+        {c.status === 'moved' && <div className="truncate">{c.newText} <span className="text-muted-foreground">({c.oldPosition} → {c.newPosition})</span></div>}
       </div>
     </div>
   )

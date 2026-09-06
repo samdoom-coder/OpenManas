@@ -162,6 +162,7 @@ model Comment {
 
   @@index([pageId])
   @@index([blockId])
+  @@index([recordId])
   @@map("comments")
 }
 
@@ -198,7 +199,7 @@ model Activity {
   workspaceId String?  @map("workspace_id") @db.Uuid
   userId      String?  @map("user_id") @db.Uuid
   action      String?
-  targetId    String?  @map("target_id") @db.Uuid
+  targetId    String?  @map("target_id")
   targetType  String?  @map("target_type")
   metadata    Json?
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz

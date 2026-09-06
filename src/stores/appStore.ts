@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Page, Block, Database, DatabaseProperty, DatabaseRecord, PropertyType, Workspace, User, Activity, Notification, Comment, FileAsset } from '@/lib/types'
+import type { Page, Block, Database, DatabaseProperty, DatabaseRecord, PropertyType, Workspace, User, Activity, Notification, Comment, FileAsset, PageVersion } from '@/lib/types'
 import { generateSeed, templatesSeed } from '@/data/seed'
 import { uid } from '@/lib/utils'
 import { getRecordTitle } from '@/lib/propertyDefs'
@@ -10,6 +10,7 @@ import { loadSession, saveSession, clearSession, signInRequest, signUpRequest } 
 import { migrateStateIds } from '@/lib/ids'
 import type { SyncStatus } from '@/lib/sync'
 import { buildNotificationsForEvent, isDoneTransition, loadAutomationRules, parseMentions, type AutomationEvent } from '@/lib/automation'
+import { loadVersions, saveVersions, buildVersion, nextVersionNumber, appendVersion, snapshotsEqual, AUTO_CAPTURE_MIN_MS, type VersionMap } from '@/lib/versions'
 import {
   onSyncStatus, queuePush, pushNow,
   fetchWorkspaces, createRemoteWorkspace, pullWorkspace,
@@ -17,6 +18,8 @@ import {
   postBlock, patchBlock, deleteBlockRemote, reorderRemoteBlocks, reconcilePageBlocks,
   postDatabase, patchDatabase, deleteDatabaseRemote,
   postRecord, patchRecord, deleteRecordRemote,
+  postComment, patchCommentRemote, deleteCommentRemote,
+  postActivity, postNotification, patchNotificationRemote,
 } from '@/lib/sync'
 
 /** True when mutations should also hit the API (slice 2). */
@@ -37,6 +40,21 @@ function pushDbSchema(dbId: string) {
   queuePush(`dbschema:${dbId}`, () => patchDatabase(dbId, { properties: d.properties, views: d.views }))
 }
 
+/** Version history: event → snapshot (auto throttled, manual always). */
+const lastAutoCapture = new Map<string, number>()
+function maybeAutoCapture(pageId: string) {
+  try {
+    const now = Date.now()
+    if (now - (lastAutoCapture.get(pageId) ?? 0) < AUTO_CAPTURE_MIN_MS) return
+    const s = useAppStore.getState()
+    const blocks = s.blocks.filter((b) => b.pageId === pageId)
+    const latest = s.versions[pageId]?.[s.versions[pageId].length - 1]
+    if (latest && snapshotsEqual(latest.blocksSnapshot, blocks)) return
+    lastAutoCapture.set(pageId, now)
+    s.captureVersion(pageId)
+  } catch { /* versioning never breaks editing */ }
+}
+
 /** Automation bus: event → notifications (prefs + rule toggles gate delivery). */
 function emitAutomation(event: AutomationEvent) {
   try {
@@ -49,6 +67,10 @@ function emitAutomation(event: AutomationEvent) {
       type: d.type, title: d.title.slice(0, 140), body: d.body?.slice(0, 500), link: d.link,
     }))
     useAppStore.setState((st) => ({ notifications: [...notifs, ...st.notifications].slice(0, 100) }))
+    persist(useAppStore.getState())
+    // Slice 4: persist the inbox server-side so it survives across devices.
+    // userId is stamped from auth; fire-and-forget so the bus never breaks.
+    if (serverMode()) for (const n of notifs) pushNow(() => postNotification(n))
   } catch { /* bus never breaks mutations */ }
 }
 
@@ -136,6 +158,12 @@ interface AppState {
   // other
   addActivity: (action: Activity['action'], targetId: string, targetType: string) => void
   addComment: (c: Omit<Comment,'id'|'createdAt'|'updatedAt'>) => void
+  updateComment: (id: string, patch: { content?: string; resolved?: boolean }) => void
+  deleteComment: (id: string) => void
+  // version history (local-first snapshots + restore via restorePageBlocks)
+  versions: VersionMap
+  captureVersion: (pageId: string, message?: string) => PageVersion | null
+  restoreVersion: (pageId: string, versionId: string) => boolean
 }
 
 const defaultUser: User = { id: 'u1', email: 'alex@openmanas.app', name: 'Alex Rivera', avatar: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
@@ -232,16 +260,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   blocks: seedData.blocks as Block[],
   databases: seedData.databases as Database[],
   records: seedData.records as DatabaseRecord[],
-  activities: [
+  activities: ((seedData as any).activities as Activity[] | undefined) ?? [
     { id: uid(), workspaceId: 'w1', userId: 'u1', action: 'page_created', targetId: 'p1', targetType: 'page', createdAt: new Date().toISOString() },
     { id: uid(), workspaceId: 'w1', userId: 'u1', action: 'database_created', targetId: 'db1', targetType: 'database', createdAt: new Date(Date.now()-3600000).toISOString() },
   ] as Activity[],
-  notifications: [
+  notifications: ((seedData as any).notifications as Notification[] | undefined)?.length ? (seedData as any).notifications as Notification[] : [
     { id: uid(), userId: 'u1', type: 'mention', title: 'You were mentioned in Website Redesign', read: false, createdAt: new Date().toISOString() },
     { id: uid(), userId: 'u1', type: 'comment', title: 'Sam commented on Mobile App', read: false, createdAt: new Date(Date.now()-7200000).toISOString() },
   ] as Notification[],
-  comments: [] as Comment[],
-  files: [] as FileAsset[],
+  comments: ((seedData as any).comments as Comment[] | undefined) ?? [] as Comment[],
+  files: ((seedData as any).files as FileAsset[] | undefined) ?? [] as FileAsset[],
+  versions: loadVersions(),
   selectedPageId: (seedData.pages as Page[])[1]?.id || null,
   selectedDatabaseId: null,
   sidebarCollapsed: initialSettings.sidebarDefault === 'collapsed',
@@ -337,6 +366,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         for (const r of s.records) {
           await postRecord(r).catch(() => {})
         }
+        for (const c of s.comments) {
+          await postComment(c).catch(() => {})
+        }
+        for (const a of s.activities.slice(0, 50)) {
+          await postActivity({ ...a, workspaceId: ws.id } as Activity).catch(() => {})
+        }
+        for (const n of s.notifications.slice(0, 50)) {
+          await postNotification(n).catch(() => {})
+        }
         set({
           workspace: { ...get().workspace, id: ws.id, name: ws.name ?? get().workspace.name },
           syncStatus: 'synced',
@@ -351,6 +389,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         blocks: pulled.blocks,
         databases: pulled.databases,
         records: pulled.records,
+        comments: (pulled as any).comments ?? get().comments,
+        activities: (pulled as any).activities?.length ? (pulled as any).activities : get().activities,
+        files: (pulled as any).files ?? get().files,
+        notifications: (pulled as any).notifications?.length ? (pulled as any).notifications : get().notifications,
         selectedPageId: null,
         selectedDatabaseId: null,
         syncStatus: 'synced',
@@ -387,8 +429,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     saveSettings(merged)
     persist({ ...get(), settings: merged })
   },
-  markNotificationRead: (id) => set(s => ({ notifications: s.notifications.map(n => n.id === id ? { ...n, read: true } : n) })),
-  markAllNotificationsRead: () => set(s => ({ notifications: s.notifications.map(n => ({ ...n, read: true })) })),
+  markNotificationRead: (id) => {
+    set(s => ({ notifications: s.notifications.map(n => n.id === id ? { ...n, read: true } : n) }))
+    persist(get())
+    if (serverMode()) queuePush(`notif:${id}`, () => patchNotificationRemote(id, true))
+  },
+  markAllNotificationsRead: () => {
+    const unread = get().notifications.filter(n => !n.read)
+    set(s => ({ notifications: s.notifications.map(n => ({ ...n, read: true })) }))
+    persist(get())
+    if (serverMode()) for (const n of unread) queuePush(`notif:${n.id}`, () => patchNotificationRemote(n.id, true))
+  },
   emptyTrash: () => {
     const trashed = get().pages.filter(p => p.isTrashed)
     if (trashed.length === 0) return 0
@@ -520,6 +571,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().addActivity('block_created', b.id, 'block')
     persist(get())
     if (serverMode()) pushNow(() => postBlock(b))
+    maybeAutoCapture(pageId)
     return b
   },
   restorePageBlocks: (pageId, snapshot) => {
@@ -535,15 +587,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (serverMode()) queuePush(`reconcile:${pageId}`, () => reconcilePageBlocks(pageId, get().blocks.filter(b => b.pageId === pageId)), 1500)
   },
   updateBlock: (id, patch) => {
+    const pageId = get().blocks.find(b=> b.id===id)?.pageId
     set(s=> ({ blocks: s.blocks.map(b=> b.id===id?{...b, ...patch, updatedAt: new Date().toISOString()}:b)}))
     // debounce persist happens via effect
     if (serverMode()) queuePush(`block:${id}`, () => patchBlock(id, patch))
+    if (pageId) maybeAutoCapture(pageId)
   },
   deleteBlock: (id) => {
+    const pageId = get().blocks.find(b=>b.id===id)?.pageId
     set(s=> ({ blocks: s.blocks.filter(b=>b.id!==id)}))
     get().addActivity('block_deleted', id, 'block')
     persist(get())
     if (serverMode()) pushNow(() => deleteBlockRemote(id))
+    if (pageId) maybeAutoCapture(pageId)
   },
   moveBlock: (id, newPos) => {
     const bl = get().blocks.find(b=>b.id===id)
@@ -555,6 +611,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(s=> ({ blocks: [...s.blocks.filter(b=>b.pageId!==bl.pageId), ...reindexed]}))
     persist(get())
     if (serverMode()) queuePush(`reorder:${bl.pageId}`, () => reorderRemoteBlocks(bl.pageId, reindexed.map(b=> b.id)))
+    maybeAutoCapture(bl.pageId)
   },
   duplicateBlock: (id) => {
     const bl = get().blocks.find(b=>b.id===id)
@@ -563,6 +620,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(s=> ({ blocks: [...s.blocks.map(b=> b.pageId===bl.pageId && b.position>bl.position ? {...b, position:b.position+1}:b), copy]}))
     persist(get())
     if (serverMode()) pushNow(() => postBlock(copy))
+    maybeAutoCapture(bl.pageId)
   },
 
   createDatabase: (name) => {
@@ -803,6 +861,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   addActivity: (action, targetId, targetType) => {
     const a: Activity = { id: uid(), workspaceId: get().workspace.id, userId: get().user.id, action, targetId, targetType, createdAt: new Date().toISOString() }
     set(s=> ({ activities: [a, ...s.activities].slice(0,50)}))
+    persist(get())
+    if (serverMode()) queuePush(`activity:${a.id}`, () => postActivity(a))
   },
   addComment: (c) => {
     const comment: Comment = { ...c, id: uid(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Comment
@@ -823,13 +883,48 @@ export const useAppStore = create<AppState>((set, get) => ({
       })
     }
     persist(get())
-  }
+    if (serverMode()) pushNow(() => postComment(comment))
+  },
+  updateComment: async (id, patch) => {
+    set(s => ({ comments: s.comments.map(x => x.id === id ? { ...x, ...patch, updatedAt: new Date().toISOString() } as Comment : x) }))
+    persist(get())
+    if (serverMode()) queuePush(`comment:${id}`, () => patchCommentRemote(id, patch))
+  },
+  deleteComment: async (id) => {
+    set(s => ({ comments: s.comments.filter(x => x.id !== id) }))
+    persist(get())
+    if (serverMode()) pushNow(() => deleteCommentRemote(id))
+  },
+  captureVersion: (pageId, message) => {
+    const s = get()
+    const blocks = s.blocks.filter((b) => b.pageId === pageId)
+    const existing = s.versions[pageId] ?? []
+    const v = buildVersion(pageId, blocks, nextVersionNumber(existing), {
+      id: uid(), createdBy: s.user.id, createdAt: new Date().toISOString(), message,
+    })
+    const next = { ...s.versions, [pageId]: appendVersion(existing, v) }
+    set({ versions: next })
+    saveVersions(next)
+    return v
+  },
+  restoreVersion: (pageId, versionId) => {
+    const s = get()
+    const v = s.versions[pageId]?.find((x) => x.id === versionId)
+    if (!v) return false
+    // Safety snapshot first so a restore is itself undoable via history.
+    s.captureVersion(pageId, `Before restore to v${v.version}`)
+    get().restorePageBlocks(pageId, v.blocksSnapshot.map((b) => ({ ...b })))
+    return true
+  },
 }))
 
 function persist(state: any) {
   try {
     const toSave = {
       pages: state.pages, blocks: state.blocks, databases: state.databases, records: state.records,
+      comments: state.comments ?? [], files: state.files ?? [],
+      activities: (state.activities ?? []).slice(0, 50),
+      notifications: (state.notifications ?? []).slice(0, 100),
       user: state.user, workspace: state.workspace,
       themeMode: state.themeMode ?? state.settings?.themeMode,
     }

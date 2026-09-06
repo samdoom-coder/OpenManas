@@ -10,6 +10,17 @@ const { Pool } = pg
 
 export const usingPg = Boolean(process.env.DATABASE_URL)
 
+const num = (v: string | undefined, fallback: number) => {
+  const n = v !== undefined ? Number(v) : NaN
+  return Number.isFinite(n) && n > 0 ? n : fallback
+}
+
+// Fail fast, never hang: without these, an unreachable DATABASE_URL makes
+// every pgQuery wait on TCP/OS timeouts (minutes) while the client aborts at
+// 15s with a generic "Server timed out". Env-overridable for slow networks.
+export const PG_CONNECT_TIMEOUT_MS = num(process.env.PG_CONNECT_TIMEOUT_MS, 5_000)
+export const PG_QUERY_TIMEOUT_MS = num(process.env.PG_QUERY_TIMEOUT_MS, 10_000)
+
 let pool: pg.Pool | null = null
 export function getPool(): pg.Pool | null {
   if (!usingPg) return null
@@ -18,6 +29,9 @@ export function getPool(): pg.Pool | null {
       connectionString: process.env.DATABASE_URL,
       max: 10,
       idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: PG_CONNECT_TIMEOUT_MS,
+      query_timeout: PG_QUERY_TIMEOUT_MS,
+      statement_timeout: PG_QUERY_TIMEOUT_MS,
     })
     pool.on('error', (e) => console.error('[pg] pool error', e))
   }
@@ -29,6 +43,20 @@ export async function pgQuery<T = any>(text: string, params?: any[]): Promise<T[
   if (!p) throw new Error('Postgres not configured (DATABASE_URL missing)')
   const res = await p.query(text, params)
   return res.rows as T[]
+}
+
+// Cheap liveness probe for /health (never throws, never hangs past ~2s).
+export async function pgOk(timeoutMs = 2_000): Promise<boolean> {
+  if (!usingPg) return true
+  try {
+    await Promise.race([
+      getPool()!.query('SELECT 1'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('pg probe timeout')), timeoutMs)),
+    ])
+    return true
+  } catch {
+    return false
+  }
 }
 
 // --- snake_case → camelCase mappers (API keeps JSON shapes) ---
