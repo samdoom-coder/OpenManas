@@ -198,7 +198,7 @@ export interface Activity {
   id: ID
   workspaceId: ID
   userId: ID
-  action: 'page_created' | 'page_updated' | 'block_created' | 'block_deleted' | 'record_created' | 'comment_added' | 'file_uploaded' | 'page_shared' | 'page_archived' | 'page_favorited' | 'database_created' | 'database_deleted'
+  action: 'page_created' | 'page_updated' | 'block_created' | 'block_deleted' | 'record_created' | 'record_updated' | 'comment_added' | 'file_uploaded' | 'page_shared' | 'page_archived' | 'page_favorited' | 'database_created' | 'database_deleted' | 'task_assigned' | 'mention'
   targetId: ID
   targetType: string
   metadata?: Record<string, unknown>

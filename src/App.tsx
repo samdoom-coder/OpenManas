@@ -8,6 +8,7 @@ import { DatabasePage } from '@/pages/DatabasePage'
 import { Settings } from '@/pages/Settings'
 import { Auth } from '@/pages/Auth'
 import { ShareDialog } from '@/components/features/ShareDialog'
+import { NotificationCenter } from '@/components/features/NotificationCenter'
 import { resolveShareToken } from '@/lib/sync'
 import { Toaster } from '@/components/ui/toast'
 import { useState, useEffect } from 'react'
@@ -94,6 +95,7 @@ export default function App() {
       <CommandPalette />
       <GlobalSearch />
       <ShareDialog />
+      <NotificationCenter />
       <Toaster />
       <Onboarding open={showOnboarding} onClose={()=> { setShowOnboarding(false); localStorage.setItem('openmanas_onboarded','1')}} />
 

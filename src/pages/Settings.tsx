@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/input'
 import { useToast } from '@/components/ui/toast'
 import { storageService } from '@/lib/storageService'
+import { loadAutomationRules, saveAutomationRules, type AutomationRule } from '@/lib/automation'
 import type { ThemeMode, DatabaseDefaultView } from '@/lib/settings'
 
 type TabId = 'account' | 'workspace' | 'appearance' | 'editor' | 'databases' | 'notifications' | 'storage' | 'collaboration' | 'data'
@@ -64,6 +65,15 @@ export function Settings() {
   const [wsName, setWsName] = useState(workspace.name)
   const [wsIcon, setWsIcon] = useState(workspace.icon ?? '')
   const [wsUrl, setWsUrl] = useState(settings.collaboration.wsUrl)
+  const [rules, setRules] = useState<AutomationRule[]>(() => loadAutomationRules())
+
+  const toggleRule = (id: AutomationRule['id']) => {
+    setRules((prev) => {
+      const next = prev.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r))
+      saveAutomationRules(next)
+      return next
+    })
+  }
 
   const stats = useMemo(() => ({
     pages: pages.length,
@@ -279,6 +289,7 @@ export function Settings() {
           )}
 
           {tab === 'notifications' && (
+            <div className="space-y-6">
             <Card className="rounded-2xl">
               <CardHeader>
                 <div className="flex items-center gap-2">
@@ -290,10 +301,24 @@ export function Settings() {
                 <Row label="Mentions" desc="You were mentioned" right={<Toggle label="Mentions" checked={settings.notifications.mentions} onChange={v => updateSettings({ notifications: { mentions: v } })} />} />
                 <Row label="Comments" desc="Replies on followed pages" right={<Toggle label="Comments" checked={settings.notifications.comments} onChange={v => updateSettings({ notifications: { comments: v } })} />} />
                 <Row label="Shares" desc="Page shared with you" right={<Toggle label="Shares" checked={settings.notifications.shares} onChange={v => updateSettings({ notifications: { shares: v } })} />} />
-                <Row label="Tasks" desc="Task assigned (automation bus in Phase 5)" right={<Toggle label="Tasks" checked={settings.notifications.tasks} onChange={v => updateSettings({ notifications: { tasks: v } })} />} />
+                <Row label="Tasks" desc="Status → Done + assignments (automation bus)" right={<Toggle label="Tasks" checked={settings.notifications.tasks} onChange={v => updateSettings({ notifications: { tasks: v } })} />} />
                 <div className="pt-3"><Button variant="outline" size="sm" onClick={() => { markAllNotificationsRead(); push({ title: 'All notifications marked read' }) }}>Mark all read</Button></div>
               </CardContent>
             </Card>
+            <Card className="rounded-2xl">
+              <CardHeader>
+                <h3 className="font-semibold">Automations</h3>
+                <p className="text-xs text-muted-foreground">Activity → Notification workflows. Disabled rules never notify, even if prefs are on.</p>
+              </CardHeader>
+              <CardContent className="space-y-2 divide-y">
+                {rules.map((r) => (
+                  <Row key={r.id} label={r.name} desc={r.description} right={
+                    <Toggle label={r.name} checked={r.enabled} onChange={() => toggleRule(r.id)} />
+                  } />
+                ))}
+              </CardContent>
+            </Card>
+            </div>
           )}
 
           {tab === 'storage' && (

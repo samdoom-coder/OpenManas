@@ -9,6 +9,7 @@ import { storageService } from '@/lib/storageService'
 import { loadSession, saveSession, clearSession, signInRequest, signUpRequest } from '@/lib/api'
 import { migrateStateIds } from '@/lib/ids'
 import type { SyncStatus } from '@/lib/sync'
+import { buildNotificationsForEvent, isDoneTransition, loadAutomationRules, parseMentions, type AutomationEvent } from '@/lib/automation'
 import {
   onSyncStatus, queuePush, pushNow,
   fetchWorkspaces, createRemoteWorkspace, pullWorkspace,
@@ -34,6 +35,21 @@ function pushDbSchema(dbId: string) {
   const d = useAppStore.getState().databases.find((x) => x.id === dbId)
   if (!d) return
   queuePush(`dbschema:${dbId}`, () => patchDatabase(dbId, { properties: d.properties, views: d.views }))
+}
+
+/** Automation bus: event → notifications (prefs + rule toggles gate delivery). */
+function emitAutomation(event: AutomationEvent) {
+  try {
+    const s = useAppStore.getState()
+    const drafts = buildNotificationsForEvent(event, s.settings?.notifications, loadAutomationRules())
+    if (drafts.length === 0) return
+    const now = new Date().toISOString()
+    const notifs: Notification[] = drafts.map((d) => ({
+      id: uid(), userId: s.user.id, read: false, createdAt: now,
+      type: d.type, title: d.title.slice(0, 140), body: d.body?.slice(0, 500), link: d.link,
+    }))
+    useAppStore.setState((st) => ({ notifications: [...notifs, ...st.notifications].slice(0, 100) }))
+  } catch { /* bus never breaks mutations */ }
 }
 
 interface AppState {
@@ -68,6 +84,7 @@ interface AppState {
   updateUser: (patch: Partial<User>) => void
   updateWorkspace: (patch: Partial<Workspace>) => void
   updateSettings: (patch: Partial<Omit<AppSettings, 'editor' | 'databases' | 'notifications' | 'collaboration'>> & { editor?: Partial<AppSettings['editor']>, databases?: Partial<AppSettings['databases']>, notifications?: Partial<AppSettings['notifications']>, collaboration?: Partial<AppSettings['collaboration']> }) => void
+  markNotificationRead: (id: string) => void
   markAllNotificationsRead: () => void
   emptyTrash: () => number
   createPage: (title: string, parentId?: string | null, icon?: string) => Page
@@ -370,6 +387,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     saveSettings(merged)
     persist({ ...get(), settings: merged })
   },
+  markNotificationRead: (id) => set(s => ({ notifications: s.notifications.map(n => n.id === id ? { ...n, read: true } : n) })),
   markAllNotificationsRead: () => set(s => ({ notifications: s.notifications.map(n => ({ ...n, read: true })) })),
   emptyTrash: () => {
     const trashed = get().pages.filter(p => p.isTrashed)
@@ -446,7 +464,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     return true
   },
   updatePage: (id, patch) => {
+    const before = get().pages.find(p => p.id===id)
     set(s => ({ pages: s.pages.map(p => p.id===id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p)}))
+    // share transition → activity + automation (page_shared)
+    if (before && (patch.shareMode !== undefined || (patch as Partial<Page>).isShared !== undefined)) {
+      const after = get().pages.find(p => p.id===id)
+      const visBefore = before.shareMode ?? (before.isShared ? 'workspace' : 'private')
+      const visAfter = after?.shareMode ?? (after?.isShared ? 'workspace' : 'private')
+      if (visBefore === 'private' && visAfter !== 'private' && after) {
+        get().addActivity('page_shared', id, 'page')
+        emitAutomation({ type: 'page_shared', actorId: get().user.id, pageId: id, title: after.title, visibility: visAfter })
+      }
+    }
     persist(get())
     if (serverMode()) queuePush(`page:${id}`, () => patchPage(id, patch))
   },
@@ -610,15 +639,32 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   updateRecord: (id, props) => {
     const rec = get().records.find(r=> r.id===id)
+    const db = rec ? get().databases.find(d=> d.id===rec.databaseId) : undefined
     set(s=> ({ records: s.records.map(r=> r.id===id ? { ...r, properties: { ...r.properties, ...props }, updatedAt: new Date().toISOString() }:r)}))
     // keep linked record-page title in sync with the title property
     if (rec?.pageId) {
-      const db = get().databases.find(d=> d.id===rec.databaseId)
-      const titleProp = db?.properties[0]?.id
+      const dbForTitle = get().databases.find(d=> d.id===rec.databaseId)
+      const titleProp = dbForTitle?.properties[0]?.id
       if (titleProp && titleProp in props) {
-        const t = getRecordTitle(db!, { properties: { ...rec.properties, ...props } })
+        const t = getRecordTitle(dbForTitle!, { properties: { ...rec.properties, ...props } })
         set(s=> ({ pages: s.pages.map(p=> p.id===rec.pageId ? { ...p, title: t, updatedAt: new Date().toISOString() } : p)}))
         if (serverMode()) queuePush(`page:${rec.pageId}`, () => patchPage(rec.pageId!, { title: t }))
+      }
+    }
+    // automation: status → Done + person assignment (Activity → Notification)
+    if (rec && db) {
+      const titleProp = db.properties[0]?.id
+      const title = titleProp ? String(rec.properties[titleProp] ?? (props[titleProp] as string) ?? 'Untitled') : 'Untitled record'
+      for (const [propId, newVal] of Object.entries(props)) {
+        const prop = db.properties.find(p => p.id === propId)
+        if (!prop) continue
+        if ((prop.type === 'status' || prop.type === 'select') && isDoneTransition(rec.properties[propId], newVal)) {
+          get().addActivity('record_updated', id, 'record')
+          emitAutomation({ type: 'status_done', actorId: get().user.id, databaseId: rec.databaseId, recordId: id, title })
+        } else if (prop.type === 'person' && newVal && String(newVal).trim() && String(rec.properties[propId] ?? '') !== String(newVal)) {
+          get().addActivity('task_assigned', id, 'record')
+          emitAutomation({ type: 'task_assigned', actorId: get().user.id, databaseId: rec.databaseId, recordId: id, assignee: String(newVal), title })
+        }
       }
     }
     persist(get())
@@ -761,6 +807,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   addComment: (c) => {
     const comment: Comment = { ...c, id: uid(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Comment
     set(s=> ({ comments: [...s.comments, comment]}))
+    get().addActivity('comment_added', comment.pageId ?? comment.recordId ?? comment.blockId ?? comment.id, comment.recordId ? 'record' : 'page')
+    emitAutomation({
+      type: 'comment_added', actorId: get().user.id, commentId: comment.id,
+      pageId: comment.pageId, recordId: comment.recordId, blockId: comment.blockId,
+      snippet: comment.content,
+    })
+    const mentioned = [...(comment.mentions ?? []), ...parseMentions(comment.content ?? '')]
+    if (mentioned.length > 0) {
+      get().addActivity('mention', comment.id, 'comment')
+      emitAutomation({
+        type: 'mention', actorId: get().user.id, commentId: comment.id,
+        pageId: comment.pageId, recordId: comment.recordId, blockId: comment.blockId,
+        mentioned, snippet: comment.content,
+      })
+    }
+    persist(get())
   }
 }))
 
