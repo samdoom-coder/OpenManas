@@ -126,6 +126,20 @@ register({
   slash: { id: 'video', title: 'Video', description: 'Embed video', icon: '▶', keywords: ['video', 'embed'], blockType: 'video' },
 })
 register({
+  type: 'file',
+  label: 'File',
+  description: 'Upload or attach any file',
+  icon: 'paperclip',
+  slash: { id: 'file', title: 'File', description: 'Upload or attach any file', icon: '📎', keywords: ['file', 'upload', 'attach', 'pdf', 'document'], blockType: 'file' },
+})
+register({
+  type: 'audio',
+  label: 'Audio',
+  description: 'Embed audio',
+  icon: 'music',
+  slash: { id: 'audio', title: 'Audio', description: 'Embed audio', icon: '🎵', keywords: ['audio', 'sound', 'music', 'voice'], blockType: 'audio' },
+})
+register({
   type: 'bookmark',
   label: 'Bookmark',
   description: 'Link preview',

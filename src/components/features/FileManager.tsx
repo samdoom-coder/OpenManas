@@ -6,7 +6,7 @@ import { useAppStore } from '@/stores/appStore'
 import { storageService } from '@/lib/storageService'
 import { blockTypeForMime, resolveAttachTarget } from '@/lib/fileRefs'
 import { useToast } from '@/components/ui/toast'
-import type { FileAsset } from '@/lib/types'
+import type { FileAsset, Page } from '@/lib/types'
 
 // Matches server FILE_MAX_SIZE default (25MB) so clients reject before upload.
 export const MAX_FILE_SIZE = 25 * 1024 * 1024
@@ -40,16 +40,13 @@ export function previewUrl(f: FileAsset): string {
 
 // simple dropzone without extra dep — custom
 export function FileManager() {
-  const { files, workspace, backendMode, pages, selectedPageId } = useAppStore()
+  const { files, workspace, backendMode, pages } = useAppStore()
   const { push } = useToast()
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [query, setQuery] = useState('')
   const [preview, setPreview] = useState<FileAsset | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  // Destination page for "+ Page" — the Files route clears the selection, so
-  // the open page can't be used. Defaults to the most recently updated page.
-  const [targetPageId, setTargetPageId] = useState<string | null>(null)
 
   // Pull server metadata once per mount when logged in (local cache otherwise).
   useEffect(() => {
@@ -69,10 +66,9 @@ export function FileManager() {
   }, [files, workspace.id, query])
 
   const pageOptions = useMemo(
-    () => [...pages].filter((p) => !p.isTrashed).sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)).slice(0, 50),
+    () => [...pages].filter((p) => !p.isTrashed).sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)).slice(0, 6),
     [pages],
   )
-  const effectiveTarget = resolveAttachTarget(pages, selectedPageId, targetPageId)
 
   const handleFiles = async (listFiles: FileList) => {
     const items = [...listFiles]
@@ -108,11 +104,11 @@ export function FileManager() {
     push({ title: `Deleted ${f.filename}` })
   }
 
-  const useInPage = (f: FileAsset) => {
+  const useInPage = (f: FileAsset, pageId: string) => {
     const st = useAppStore.getState()
-    const page = resolveAttachTarget(st.pages, st.selectedPageId, targetPageId)
+    const page = resolveAttachTarget(st.pages, st.selectedPageId, pageId)
     if (!page) {
-      push({ title: 'No page to attach to', desc: 'Create a page first, then attach this file to it.' })
+      push({ title: 'Page not found', desc: 'That page was deleted — pick another.' })
       return
     }
     const url = previewUrl(f)
@@ -155,20 +151,7 @@ export function FileManager() {
       </div>
 
       <div className="rounded-2xl border bg-card">
-        <div className="px-3 pt-3 flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="shrink-0">“+ Page” attaches to:</span>
-          <select
-            value={effectiveTarget?.id ?? ''}
-            onChange={e => setTargetPageId(e.target.value || null)}
-            className="h-8 min-w-0 flex-1 rounded-lg border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
-          >
-            {pageOptions.length === 0 && <option value="">No pages yet</option>}
-            {pageOptions.map(p => (
-              <option key={p.id} value={p.id}>{p.title || 'Untitled'}</option>
-            ))}
-          </select>
-        </div>
-        <div className="p-3 border-b flex items-center gap-2 mt-1">
+        <div className="p-3 border-b flex items-center gap-2">
           <span className="font-medium text-sm flex items-center gap-2"><File size={16} /> Files in workspace</span>
           <span className="text-xs text-muted-foreground">{list.length}</span>
           <span className="ml-auto flex items-center gap-1">
@@ -195,7 +178,7 @@ export function FileManager() {
             </div>
           )}
           {list.map(f => (
-            <FileRow key={f.id} file={f} onPreview={() => setPreview(f)} onUseInPage={() => useInPage(f)} onDelete={() => remove(f)} />
+            <FileRow key={f.id} file={f} pages={pageOptions} onPreview={() => setPreview(f)} onUseInPage={(pageId) => useInPage(f, pageId)} onDelete={() => remove(f)} />
           ))}
         </div>
       </div>
@@ -205,10 +188,11 @@ export function FileManager() {
   )
 }
 
-function FileRow({ file: f, onPreview, onUseInPage, onDelete }: { file: FileAsset; onPreview: () => void; onUseInPage: () => void; onDelete: () => void }) {
+function FileRow({ file: f, pages, onPreview, onUseInPage, onDelete }: { file: FileAsset; pages: Page[]; onPreview: () => void; onUseInPage: (pageId: string) => void; onDelete: () => void }) {
   const kind = kindOf(f.mimeType)
   const url = previewUrl(f)
   const Icon = kind === 'image' ? ImageIcon : kind === 'video' ? Video : kind === 'audio' ? Music : kind === 'pdf' ? FileText : File
+  const [choosing, setChoosing] = useState(false)
   return (
     <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-accent">
       {kind === 'image' && url ? (
@@ -224,9 +208,30 @@ function FileRow({ file: f, onPreview, onUseInPage, onDelete }: { file: FileAsse
         <span className="block text-sm font-medium truncate">{f.filename}</span>
         <span className="block text-xs text-muted-foreground">{formatSize(f.size)} • {new Date(f.createdAt).toLocaleDateString()}</span>
       </button>
-      <Button variant="ghost" size="sm" onClick={onUseInPage} title="Attach to the open page">
-        <Plus size={14} className="mr-1" /> Page
-      </Button>
+      <div className="relative shrink-0">
+        <Button variant="ghost" size="sm" onClick={() => setChoosing(v => !v)} title="Attach to a page">
+          <Plus size={14} className="mr-1" /> Page
+        </Button>
+        {choosing && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setChoosing(false)} />
+            <div className="absolute right-0 bottom-full mb-1 z-40 w-60 rounded-xl border bg-popover shadow-xl p-1.5">
+              <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">Attach “{f.filename.length > 24 ? `${f.filename.slice(0, 23)}…` : f.filename}” to…</div>
+              {pages.length === 0 && <div className="px-2 py-3 text-xs text-muted-foreground">No pages yet — create one first.</div>}
+              {pages.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => { setChoosing(false); onUseInPage(p.id) }}
+                  className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-accent text-sm text-left"
+                >
+                  <span className="w-6 h-6 grid place-items-center rounded-md bg-muted text-xs shrink-0">{p.icon || '📄'}</span>
+                  <span className="flex-1 min-w-0 truncate">{p.title || 'Untitled'}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
       <Button variant="ghost" size="sm" onClick={onDelete} title={`Delete ${f.filename}`} className="hover:text-red-600">
         <Trash2 size={14} />
       </Button>

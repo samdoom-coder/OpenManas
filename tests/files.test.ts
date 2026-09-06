@@ -11,7 +11,17 @@ const mem = new Map<string, string>()
 
 const { formatSize, kindOf, previewUrl } = await import('../src/components/features/FileManager')
 const { blockTypeForMime, acceptMatches, resolveAttachTarget } = await import('../src/lib/fileRefs')
+const { BlockRegistry } = await import('../src/lib/blockRegistry')
 const { useAppStore } = await import('../src/stores/appStore')
+
+describe('file/audio slash commands', () => {
+  it('registers /file and /audio so every upload block is creatable', () => {
+    const ids = BlockRegistry.slashCommands().map((c) => c.blockType)
+    for (const t of ['image', 'video', 'audio', 'file'] as const) {
+      expect(ids).toContain(t)
+    }
+  })
+})
 const api = await import('../src/lib/api')
 const sync = await import('../src/lib/sync')
 
@@ -82,8 +92,7 @@ describe('acceptMatches', () => {
   })
 })
 
-describe('resolveAttachTarget', () => {
-  const mk = (id: string, updatedAt: string, isTrashed = false) => ({
+describe('resolveAttachTarget', () => {  const mk = (id: string, updatedAt: string, isTrashed = false) => ({
     id, workspaceId: 'w1', parentId: null, title: id, isFavorite: false,
     isArchived: false, isTrashed, isShared: false,
     createdBy: 'u', updatedBy: 'u', createdAt: updatedAt, updatedAt,
