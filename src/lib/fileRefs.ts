@@ -1,7 +1,7 @@
 // File ↔ block references — shared by FileManager (use-in-page) and
 // BlockEditor (pick-from-workspace + record uploads). Pure + tested in
 // tests/files.test.ts.
-import type { BlockType } from '@/lib/types'
+import type { BlockType, Page } from '@/lib/types'
 
 /** Block type that renders a given mime (pdf/office → generic file block). */
 export function blockTypeForMime(mime: string): BlockType {
@@ -27,4 +27,23 @@ export function acceptMatches(accept: string | undefined, mime: string, filename
     if (token.startsWith('.')) return name.endsWith(token)
     return m === token
   })
+}
+
+/**
+ * Resolve the destination page for "attach file to page".
+ * Explicit choice wins, then the currently open page, then the most
+ * recently updated non-trashed page. Null = nowhere to attach.
+ */
+export function resolveAttachTarget(
+  pages: Page[],
+  selectedPageId: string | null,
+  overridePageId?: string | null,
+): Page | null {
+  const usable = pages.filter((p) => !p.isTrashed)
+  if (overridePageId) return usable.find((p) => p.id === overridePageId) ?? null
+  if (selectedPageId) {
+    const current = usable.find((p) => p.id === selectedPageId)
+    if (current) return current
+  }
+  return [...usable].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))[0] ?? null
 }

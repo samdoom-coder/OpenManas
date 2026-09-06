@@ -10,7 +10,7 @@ const mem = new Map<string, string>()
 }
 
 const { formatSize, kindOf, previewUrl } = await import('../src/components/features/FileManager')
-const { blockTypeForMime, acceptMatches } = await import('../src/lib/fileRefs')
+const { blockTypeForMime, acceptMatches, resolveAttachTarget } = await import('../src/lib/fileRefs')
 const { useAppStore } = await import('../src/stores/appStore')
 const api = await import('../src/lib/api')
 const sync = await import('../src/lib/sync')
@@ -79,6 +79,27 @@ describe('acceptMatches', () => {
     expect(acceptMatches('.pdf', 'application/pdf', 'doc.txt')).toBe(false)
     expect(acceptMatches('image/png, application/pdf', 'application/pdf', 'd.pdf')).toBe(true)
     expect(acceptMatches('image/png', 'image/jpeg', 'a.jpg')).toBe(false)
+  })
+})
+
+describe('resolveAttachTarget', () => {
+  const mk = (id: string, updatedAt: string, isTrashed = false) => ({
+    id, workspaceId: 'w1', parentId: null, title: id, isFavorite: false,
+    isArchived: false, isTrashed, isShared: false,
+    createdBy: 'u', updatedBy: 'u', createdAt: updatedAt, updatedAt,
+  })
+  const pages = [mk('old', '2024-01-01T00:00:00Z'), mk('new', '2024-06-01T00:00:00Z'), mk('trash', '2024-07-01T00:00:00Z', true)]
+
+  it('prefers the explicit override', () => {
+    expect(resolveAttachTarget(pages as never, 'new', 'old')?.id).toBe('old')
+    expect(resolveAttachTarget(pages as never, null, 'missing')).toBeNull()
+    expect(resolveAttachTarget(pages as never, null, 'trash')).toBeNull()
+  })
+
+  it('falls back to the open page, then most recent', () => {
+    expect(resolveAttachTarget(pages as never, 'old', null)?.id).toBe('old')
+    expect(resolveAttachTarget(pages as never, null, null)?.id).toBe('new')
+    expect(resolveAttachTarget([], null, null)).toBeNull()
   })
 })
 

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
 import { useAppStore } from '@/stores/appStore'
 import { storageService } from '@/lib/storageService'
-import { blockTypeForMime } from '@/lib/fileRefs'
+import { blockTypeForMime, resolveAttachTarget } from '@/lib/fileRefs'
 import { useToast } from '@/components/ui/toast'
 import type { FileAsset } from '@/lib/types'
 
@@ -40,13 +40,16 @@ export function previewUrl(f: FileAsset): string {
 
 // simple dropzone without extra dep — custom
 export function FileManager() {
-  const { files, workspace, backendMode } = useAppStore()
+  const { files, workspace, backendMode, pages, selectedPageId } = useAppStore()
   const { push } = useToast()
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [query, setQuery] = useState('')
   const [preview, setPreview] = useState<FileAsset | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  // Destination page for "+ Page" — the Files route clears the selection, so
+  // the open page can't be used. Defaults to the most recently updated page.
+  const [targetPageId, setTargetPageId] = useState<string | null>(null)
 
   // Pull server metadata once per mount when logged in (local cache otherwise).
   useEffect(() => {
@@ -64,6 +67,12 @@ export function FileManager() {
       .filter((f) => !q || f.filename.toLowerCase().includes(q))
       .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
   }, [files, workspace.id, query])
+
+  const pageOptions = useMemo(
+    () => [...pages].filter((p) => !p.isTrashed).sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)).slice(0, 50),
+    [pages],
+  )
+  const effectiveTarget = resolveAttachTarget(pages, selectedPageId, targetPageId)
 
   const handleFiles = async (listFiles: FileList) => {
     const items = [...listFiles]
@@ -101,10 +110,9 @@ export function FileManager() {
 
   const useInPage = (f: FileAsset) => {
     const st = useAppStore.getState()
-    const pageId = st.selectedPageId
-    const page = st.pages.find((p) => p.id === pageId)
-    if (!pageId || !page) {
-      push({ title: 'Open a page first', desc: 'Select a page, then attach this file to it.' })
+    const page = resolveAttachTarget(st.pages, st.selectedPageId, targetPageId)
+    if (!page) {
+      push({ title: 'No page to attach to', desc: 'Create a page first, then attach this file to it.' })
       return
     }
     const url = previewUrl(f)
@@ -113,7 +121,8 @@ export function FileManager() {
       return
     }
     const type = blockTypeForMime(f.mimeType)
-    st.addBlock(pageId, type, url)
+    st.addBlock(page.id, type, url)
+    st.setSelectedPage(page.id)
     push({ title: `Attached to ${page.title || 'Untitled'}`, desc: `${f.filename} added as a ${type} block.` })
   }
 
@@ -146,7 +155,20 @@ export function FileManager() {
       </div>
 
       <div className="rounded-2xl border bg-card">
-        <div className="p-3 border-b flex items-center gap-2">
+        <div className="px-3 pt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="shrink-0">“+ Page” attaches to:</span>
+          <select
+            value={effectiveTarget?.id ?? ''}
+            onChange={e => setTargetPageId(e.target.value || null)}
+            className="h-8 min-w-0 flex-1 rounded-lg border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
+          >
+            {pageOptions.length === 0 && <option value="">No pages yet</option>}
+            {pageOptions.map(p => (
+              <option key={p.id} value={p.id}>{p.title || 'Untitled'}</option>
+            ))}
+          </select>
+        </div>
+        <div className="p-3 border-b flex items-center gap-2 mt-1">
           <span className="font-medium text-sm flex items-center gap-2"><File size={16} /> Files in workspace</span>
           <span className="text-xs text-muted-foreground">{list.length}</span>
           <span className="ml-auto flex items-center gap-1">

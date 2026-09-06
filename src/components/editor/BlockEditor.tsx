@@ -1242,15 +1242,24 @@ function ImageUpload({ onUpload, onUrl }: { onUpload:(url:string)=>void, onUrl:(
 // Only lists files with a resolvable URL on this device.
 function WorkspaceFilePicker({ accept, onPick }: { accept?: string; onPick:(url:string)=>void }) {
   const { files, workspace } = useAppStore()
-  const options = files
-    .filter(f => (f.workspaceId === workspace.id || !f.workspaceId) && acceptMatches(accept, f.mimeType, f.filename))
+  const mine = files.filter(f => (f.workspaceId === workspace.id || !f.workspaceId))
+  const matched = mine.filter(f => acceptMatches(accept, f.mimeType, f.filename))
+  const options = matched
     .map(f => ({ f, url: previewUrl(f) }))
     .filter(x => x.url)
     .slice(0, 8)
-  if (options.length === 0) return null
+  if (mine.length === 0) return null
+  const typeHidden = mine.length - matched.length
+  const bytesHidden = matched.length - options.length
+  const notes = [
+    typeHidden > 0 ? `${typeHidden} other type${typeHidden === 1 ? '' : 's'} need a file block (/file)` : '',
+    bytesHidden > 0 ? `${bytesHidden} without local bytes` : '',
+  ].filter(Boolean).join(' • ')
   return (
     <div className="mt-3">
-      <div className="text-[11px] font-medium text-muted-foreground mb-1.5">Or choose from workspace files</div>
+      <div className="text-[11px] font-medium text-muted-foreground mb-1.5">
+        Or choose from workspace files ({options.length} shown{notes ? ` — ${notes}` : ''})
+      </div>
       <div className="grid grid-cols-4 gap-1.5">
         {options.map(({ f, url }) => (
           <button
