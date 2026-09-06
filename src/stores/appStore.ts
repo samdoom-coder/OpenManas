@@ -20,6 +20,7 @@ import {
   postRecord, patchRecord, deleteRecordRemote,
   postComment, patchCommentRemote, deleteCommentRemote,
   postActivity, postNotification, patchNotificationRemote,
+  postFileMeta, deleteFileRemote, fetchFiles,
 } from '@/lib/sync'
 
 /** True when mutations should also hit the API (slice 2). */
@@ -164,6 +165,10 @@ interface AppState {
   versions: VersionMap
   captureVersion: (pageId: string, message?: string) => PageVersion | null
   restoreVersion: (pageId: string, versionId: string) => boolean
+  // files (FileManager records; bytes live in the storage provider)
+  addFile: (meta: { filename: string; mimeType: string; size: number; storageKey: string; url?: string }) => FileAsset
+  removeFile: (id: string) => void
+  refreshFiles: () => Promise<void>
 }
 
 const defaultUser: User = { id: 'u1', email: 'alex@openmanas.app', name: 'Alex Rivera', avatar: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
@@ -915,6 +920,37 @@ export const useAppStore = create<AppState>((set, get) => ({
     s.captureVersion(pageId, `Before restore to v${v.version}`)
     get().restorePageBlocks(pageId, v.blocksSnapshot.map((b) => ({ ...b })))
     return true
+  },
+  addFile: (meta) => {
+    const now = new Date().toISOString()
+    const f: FileAsset = {
+      id: uid(), workspaceId: get().workspace.id, filename: meta.filename.slice(0, 255),
+      mimeType: meta.mimeType || 'application/octet-stream', size: Math.max(0, Math.floor(meta.size) || 0),
+      storageKey: meta.storageKey, url: meta.url, uploadedBy: get().user.id, createdAt: now,
+    }
+    set(s => ({ files: [f, ...s.files].slice(0, 500) }))
+    get().addActivity('file_uploaded', f.id, 'file')
+    persist(get())
+    if (serverMode()) pushNow(() => postFileMeta(f))
+    return f
+  },
+  removeFile: (id) => {
+    const f = get().files.find((x) => x.id === id)
+    set(s => ({ files: s.files.filter((x) => x.id !== id) }))
+    persist(get())
+    // Best-effort bytes cleanup; metadata delete is authoritative.
+    if (f?.storageKey) storageService.getActive().delete(f.storageKey).catch(() => {})
+    if (serverMode()) pushNow(() => deleteFileRemote(id))
+  },
+  refreshFiles: async () => {
+    if (!serverMode()) return
+    try {
+      const remote = await fetchFiles(get().workspace.id)
+      if (Array.isArray(remote)) {
+        set({ files: (remote as FileAsset[]).slice(0, 500) })
+        persist(get())
+      }
+    } catch { /* offline — keep local cache */ }
   },
 }))
 

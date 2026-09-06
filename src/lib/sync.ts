@@ -220,6 +220,7 @@ export const postFileMeta = (f: FileAsset) =>
       mimeType: f.mimeType, size: f.size,
     }),
   })
+export const deleteFileRemote = (id: string) => apiFetch(`/api/files/${id}`, { method: 'DELETE' })
 
 // --- PUSH/PULL: notifications (per-user inbox, fed by the automation bus) ---
 export const fetchNotifications = () => apiFetch<Notification[]>('/api/notifications')

@@ -1110,6 +1110,24 @@ app.post('/api/files', authStub, async (req:any,res)=> {
   db.files.push(f); saveDB()
   res.status(201).json(f)
 })
+app.delete('/api/files/:id', authStub, async (req:any,res)=> {
+  if (usingPg) {
+    try {
+      const cur = await pgQuery('SELECT workspace_id FROM files WHERE id=$1', [req.params.id])
+      if (!cur[0]) return res.status(404).json({ error:'Not found' })
+      const wsId = (cur[0] as any).workspace_id as string | null
+      if (wsId && !await requireWorkspaceAction(res, wsId, (req as any).userId, 'edit')) return
+      await pgQuery('DELETE FROM files WHERE id=$1', [req.params.id])
+      return res.json({ ok:true })
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  const idx = db.files.findIndex((f: any)=> f.id===req.params.id)
+  if (idx===-1) return res.status(404).json({ error:'Not found' })
+  const wsId = db.files[idx].workspaceId
+  if (wsId && !await requireWorkspaceAction(res, wsId, (req as any).userId, 'edit')) return
+  db.files.splice(idx,1); saveDB()
+  res.json({ ok:true })
+})
 
 // Activities — workspace feed. Clients push lightweight events (page/record/
 // comment actions); the server stamps userId from auth (no spoofing).
