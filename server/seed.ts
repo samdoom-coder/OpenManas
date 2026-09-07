@@ -54,7 +54,8 @@ async function main() {
     comments: [],
     activities: [],
     notifications: [],
-    shares: []
+    shares: [],
+    versions: []
   }
   fs.mkdirSync(path.dirname(dbPath), { recursive:true })
   fs.writeFileSync(dbPath, JSON.stringify(seed, null, 2))

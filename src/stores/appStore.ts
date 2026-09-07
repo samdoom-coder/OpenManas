@@ -21,6 +21,7 @@ import {
   postComment, patchCommentRemote, deleteCommentRemote,
   postActivity, postNotification, patchNotificationRemote,
   postFileMeta, deleteFileRemote, fetchFiles,
+  fetchPageVersions, postPageVersion, fetchVersionsForPages,
 } from '@/lib/sync'
 
 /** True when mutations should also hit the API (slice 2). */
@@ -165,6 +166,7 @@ interface AppState {
   versions: VersionMap
   captureVersion: (pageId: string, message?: string) => PageVersion | null
   restoreVersion: (pageId: string, versionId: string) => boolean
+  refreshVersions: (pageId: string) => Promise<void>
   // files (FileManager records; bytes live in the storage provider)
   addFile: (meta: { filename: string; mimeType: string; size: number; storageKey: string; url?: string }) => FileAsset
   removeFile: (id: string) => void
@@ -380,6 +382,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         for (const n of s.notifications.slice(0, 50)) {
           await postNotification(n).catch(() => {})
         }
+        for (const [pageId, list] of Object.entries(s.versions ?? {})) {
+          for (const v of list.slice(-20)) {
+            await postPageVersion(pageId, v).catch(() => {})
+          }
+        }
         set({
           workspace: { ...get().workspace, id: ws.id, name: ws.name ?? get().workspace.name },
           syncStatus: 'synced',
@@ -388,6 +395,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         return 'uploaded'
       }
       const pulled = await pullWorkspace(ws.id)
+      // Versions are per-page and best-effort (older servers 404 → keep local).
+      let remoteVersions: Record<string, PageVersion[]> | null = null
+      try {
+        const ids = (pulled.pages as Page[]).map((p) => p.id)
+        remoteVersions = await fetchVersionsForPages(ids)
+      } catch { remoteVersions = null }
       set({
         workspace: { ...get().workspace, id: ws.id, name: ws.name ?? get().workspace.name, icon: ws.icon ?? get().workspace.icon },
         pages: (pulled.pages as Page[]).map(normalizePageIcon),
@@ -398,10 +411,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         activities: (pulled as any).activities?.length ? (pulled as any).activities : get().activities,
         files: (pulled as any).files ?? get().files,
         notifications: (pulled as any).notifications?.length ? (pulled as any).notifications : get().notifications,
+        versions: remoteVersions && Object.keys(remoteVersions).length ? remoteVersions : get().versions,
         selectedPageId: null,
         selectedDatabaseId: null,
         syncStatus: 'synced',
       })
+      try {
+        if (remoteVersions && Object.keys(remoteVersions).length) saveVersions({ ...get().versions, ...remoteVersions })
+      } catch { /* cache best-effort */ }
       persist(get())
       return 'up-to-date'
     } catch (e) {
@@ -910,6 +927,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = { ...s.versions, [pageId]: appendVersion(existing, v) }
     set({ versions: next })
     saveVersions(next)
+    if (serverMode()) pushNow(() => postPageVersion(pageId, v))
     return v
   },
   restoreVersion: (pageId, versionId) => {
@@ -920,6 +938,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     s.captureVersion(pageId, `Before restore to v${v.version}`)
     get().restorePageBlocks(pageId, v.blocksSnapshot.map((b) => ({ ...b })))
     return true
+  },
+  refreshVersions: async (pageId) => {
+    if (!serverMode()) return
+    try {
+      const remote = await fetchPageVersions(pageId)
+      if (Array.isArray(remote)) {
+        const next = { ...get().versions, [pageId]: (remote as PageVersion[]).slice(-20) }
+        set({ versions: next })
+        saveVersions(next)
+      }
+    } catch { /* offline — keep local cache */ }
   },
   addFile: (meta) => {
     const now = new Date().toISOString()

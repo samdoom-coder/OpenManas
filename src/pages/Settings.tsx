@@ -273,15 +273,15 @@ export function Settings() {
                     {(['table', 'board', 'calendar', 'gallery', 'list', 'timeline'] as const).map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
                 } />
-                <Row label="Rows per page" desc="Pagination target (10k-record virtualization future)" right={
+                <Row label="Rows per page" desc="Pagination target — tables virtualize past 100 rows/page" right={
                   <select aria-label="Rows per page" value={settings.databases.pageSize} onChange={e => updateSettings({ databases: { pageSize: Number(e.target.value) } })} className="border rounded-xl px-2 py-1.5 text-sm bg-background">
-                    {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+                    {[10, 25, 50, 100, 250, 500].map(n => <option key={n} value={n}>{n}</option>)}
                   </select>
                 } />
                 <Row label="Relation rollups" desc="Phase 3: count/sum across relations" right={
                   <div className="flex items-center gap-2"><Badge>Phase 3</Badge><Toggle label="Relation rollups" checked={settings.databases.rollupFormulas} onChange={v => updateSettings({ databases: { rollupFormulas: v } })} /></div>
                 } />
-                <Row label="Linked embeds" desc="Phase 3: per-embed filter/sort (now preview only)" right={
+                <Row label="Linked embeds" desc="Phase 3: per-embed view/filter/sort overrides" right={
                   <div className="flex items-center gap-2"><Badge>Phase 3</Badge><Toggle label="Linked embeds" checked={settings.databases.linkedEmbeds} onChange={v => updateSettings({ databases: { linkedEmbeds: v } })} /></div>
                 } />
               </CardContent>

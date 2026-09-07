@@ -1,9 +1,11 @@
 // Page version history — local-first snapshots + block-level diff.
-// v1 scope: snapshots live in localStorage (`openmanas_versions_v1`), capped
-// per page so the keystroke-level editor can't blow the quota. Restore reuses
+// Snapshots live in localStorage (`openmanas_versions_v1`), capped per page so
+// the keystroke-level editor can't blow the quota. When logged in they also
+// persist to the server (`GET/POST /api/pages/:id/versions`, `page_versions`
+// table, capped 20/page) so history survives across devices; pulls merge
+// remote over local and first-run uploads push local up. Restore reuses
 // `restorePageBlocks` (undo backbone) so server reconcile + historyRev come
-// free. Server persistence (`page_versions` table) is a queued follow-up.
-// Pure helpers (diffBlocks, stripHtml, summarizeDiff) are unit-tested in
+// free. Pure helpers (diffBlocks, stripHtml, summarizeDiff) are unit-tested in
 // tests/versions.test.ts.
 
 import type { Block, PageVersion } from '@/lib/types'

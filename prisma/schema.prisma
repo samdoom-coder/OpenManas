@@ -213,6 +213,7 @@ model PageVersion {
   pageId         String?  @map("page_id") @db.Uuid
   version        Int?
   blocksSnapshot Json?    @map("blocks_snapshot")
+  message        String?
   createdBy      String?  @map("created_by") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
 

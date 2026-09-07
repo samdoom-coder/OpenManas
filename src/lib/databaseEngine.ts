@@ -55,6 +55,37 @@ export function groupRecords(records: DatabaseRecord[], groupBy?: string): Recor
   return groups
 }
 
+export type EmbedSort = { propertyId: string, direction: 'asc' | 'desc' }
+
+// Linked database embeds (Phase 3): per-embed filter/sort overrides live in
+// block properties (`embedFilter`, `embedSort`) and apply only when the
+// workspace enables Settings → Databases → linked embeds. Clearing an override
+// (undefined) falls back to the database view's own filter/sort. Malformed
+// values (e.g. referencing nothing valid) are ignored so a corrupt block can
+// never blank an embed.
+export function resolveEmbedFilter(linkedOn: boolean, properties: Record<string, unknown> | undefined): FilterGroup | undefined {
+  if (!linkedOn) return undefined
+  const g = (properties as any)?.embedFilter as FilterGroup | undefined
+  if (!g || typeof g !== 'object') return undefined
+  if (!['and', 'or', 'not'].includes((g as any).op)) return undefined
+  if (!Array.isArray((g as any).conditions)) return undefined
+  return g
+}
+
+export function resolveEmbedSort(linkedOn: boolean, properties: Record<string, unknown> | undefined): EmbedSort | undefined {
+  if (!linkedOn) return undefined
+  const s = (properties as any)?.embedSort as EmbedSort | undefined
+  if (!s || typeof s !== 'object') return undefined
+  if (typeof s.propertyId !== 'string' || !s.propertyId) return undefined
+  if (s.direction !== 'asc' && s.direction !== 'desc') return undefined
+  return { propertyId: s.propertyId, direction: s.direction }
+}
+
+/** True when the embed carries any effective override (drives the “Custom” badge). */
+export function hasEmbedOverrides(linkedOn: boolean, properties: Record<string, unknown> | undefined): boolean {
+  return resolveEmbedFilter(linkedOn, properties) !== undefined || resolveEmbedSort(linkedOn, properties) !== undefined
+}
+
 // Virtualization helper
 // Postgres mapping: paginate() mirrors `LIMIT pageSize OFFSET (page-1)*pageSize`.
 // Server should return `{ rows, total }` via `SELECT COUNT(*) OVER() ... LIMIT/OFFSET`

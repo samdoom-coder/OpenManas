@@ -6,7 +6,7 @@
 // is preserved).
 
 import { apiFetch } from './api'
-import type { Page, Block, Database, DatabaseRecord, Workspace, Comment, Activity, Notification, FileAsset } from './types'
+import type { Page, Block, Database, DatabaseRecord, Workspace, Comment, Activity, Notification, FileAsset, PageVersion } from './types'
 
 export type SyncStatus = 'local' | 'syncing' | 'synced' | 'error'
 
@@ -232,6 +232,29 @@ export const postNotification = (n: Notification) =>
 export const patchNotificationRemote = (id: string, read: boolean) =>
   apiFetch(`/api/notifications/${id}`, { method: 'PATCH', body: JSON.stringify({ read }) })
 
+// --- PUSH/PULL: page versions (snapshot history, append-only, capped 20/page) ---
+export const fetchPageVersions = (pageId: string) =>
+  apiFetch<PageVersion[]>(`/api/pages/${pageId}/versions`)
+export const postPageVersion = (pageId: string, v: Pick<PageVersion, 'id' | 'blocksSnapshot' | 'message'>) =>
+  apiFetch<PageVersion>(`/api/pages/${pageId}/versions`, {
+    method: 'POST',
+    body: JSON.stringify({ id: v.id, blocksSnapshot: v.blocksSnapshot ?? [], message: v.message }),
+  })
+export const deletePageVersionRemote = (pageId: string, versionId: string) =>
+  apiFetch(`/api/pages/${pageId}/versions/${versionId}`, { method: 'DELETE' })
+
+/** Best-effort fetch of versions for many pages (older servers 404 → {}). */
+export async function fetchVersionsForPages(pageIds: string[]): Promise<Record<string, PageVersion[]>> {
+  const out: Record<string, PageVersion[]> = {}
+  await Promise.all(pageIds.map(async (pageId) => {
+    try {
+      const list = await fetchPageVersions(pageId)
+      if (Array.isArray(list)) out[pageId] = list as PageVersion[]
+    } catch { /* per-page best-effort */ }
+  }))
+  return out
+}
+
 // --- Workspace members (per-user ACL) ---
 export interface WorkspaceMemberDTO {
   id: string
@@ -267,6 +290,13 @@ export const listShareLinks = (pageId: string) => apiFetch<ShareLink[]>(`/api/pa
 export const revokeShareLink = (token: string) => apiFetch(`/api/shares/${token}`, { method: 'DELETE' })
 export const resolveShareToken = (token: string) =>
   apiFetch<{ pageId: string; permission: string; visibility: string }>(`/api/shares/${token}`)
+
+// Public reads: anyone holding a valid invite-link token may read the page +
+// its blocks without a session or workspace membership. Writes still need auth.
+export const fetchSharedPage = (pageId: string, token: string) =>
+  apiFetch<Page>(`/api/pages/${pageId}?token=${encodeURIComponent(token)}`)
+export const fetchSharedBlocks = (pageId: string, token: string) =>
+  apiFetch<Block[]>(`/api/pages/${pageId}/blocks?token=${encodeURIComponent(token)}`)
 
 export function shareUrl(token: string): string {
   try {

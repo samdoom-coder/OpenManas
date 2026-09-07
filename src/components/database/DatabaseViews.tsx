@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, type CSSProperties } from 'react'
+import { List as VirtualList } from 'react-window'
 import { useAppStore } from '@/stores/appStore'
 import type { Database, DatabaseRecord, FilterGroup, FilterCondition } from '@/lib/types'
 import { evaluateFilter, sortRecords, groupRecords, paginate, pageCount } from '@/lib/databaseEngine'
@@ -13,7 +14,24 @@ import { Modal } from '@/components/ui/modal'
 import { cn } from '@/lib/utils'
 import { recordsToCsv, recordsToJson, parseCsv, parseCsvCell, mapCsvToRecords, downloadFile, slugify } from '@/lib/csvUtils'
 
-export function DatabaseViews({ database, compact, initialViewType, onViewTypeChange }: { database: Database, compact?: boolean, initialViewType?: Database['views'][number]['type'], onViewTypeChange?: (t: Database['views'][number]['type']) => void }) {
+// Virtualized table: above this many rows on the current page the table body
+// renders through react-window (fixed row height) instead of plain <tr>s.
+const VIRTUALIZE_AFTER = 100
+const VIRTUAL_ROW_H = 52
+const VIRTUAL_VIEW_H = 480
+
+export function DatabaseViews({ database, compact, initialViewType, onViewTypeChange, initialFilter, onFilterChange, initialSort, onSortChange }: {
+  database: Database
+  compact?: boolean
+  initialViewType?: Database['views'][number]['type']
+  onViewTypeChange?: (t: Database['views'][number]['type']) => void
+  // Per-embed overrides (linked DB): when the callbacks are provided the parent
+  // owns filter/sort (stored in block properties); otherwise they stay local.
+  initialFilter?: FilterGroup
+  onFilterChange?: (g?: FilterGroup) => void
+  initialSort?: { propertyId: string, direction: 'asc' | 'desc' } | null
+  onSortChange?: (s: { propertyId: string, direction: 'asc' | 'desc' } | null) => void
+}) {
   const { records, createRecord, importRecords, updateRecord, deleteRecord, updateProperty, settings, updateSettings } = useAppStore()
   const dbRecords = records.filter(r=> r.databaseId===database.id)
   const settingsDefault = settings?.databases?.defaultView ?? 'table'
@@ -29,8 +47,20 @@ export function DatabaseViews({ database, compact, initialViewType, onViewTypeCh
   const view = database.views.find(v=> v.type===viewType) || database.views[0]
   const [filterQ, setFilterQ] = useState('')
   const [newRow, setNewRow] = useState<Record<string, any>>({})
-  const [sort, setSort] = useState<{propertyId:string, direction:'asc'|'desc'} | null>(null)
-  const [filterGroup, setFilterGroup] = useState<FilterGroup | undefined>(view?.filter)
+  const [sortState, setSortState] = useState<{propertyId:string, direction:'asc'|'desc'} | null>(initialSort ?? null)
+  const [filterGroupState, setFilterGroupState] = useState<FilterGroup | undefined>(initialFilter ?? view?.filter)
+  // Parent-owned (embed) or local: wrappers notify the parent when present.
+  const sort = sortState
+  const setSort = (s: {propertyId:string, direction:'asc'|'desc'} | null) => { setSortState(s); onSortChange?.(s) }
+  const filterGroup = filterGroupState
+  const setFilterGroup = (g?: FilterGroup) => { setFilterGroupState(g); onFilterChange?.(g) }
+  // Reset transient view state when switching databases (stale property ids
+  // from another schema must never blank the new table).
+  useEffect(() => {
+    setSortState(initialSort ?? null)
+    setFilterGroupState(initialFilter)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [database.id])
   const [showFilter, setShowFilter] = useState(false)
   const [showSort, setShowSort] = useState(false)
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set())
@@ -311,7 +341,7 @@ export function DatabaseViews({ database, compact, initialViewType, onViewTypeCh
             <span className="tabular-nums px-1">Page {safePage} / {totalPages}</span>
             <button disabled={safePage>=totalPages} onClick={()=> setPage(p=> Math.min(totalPages, p+1))} className="px-2 py-1 rounded-lg border bg-card disabled:opacity-40 hover:bg-accent">Next</button>
             <select aria-label="Rows per page" value={pageSize} onChange={e=> updateSettings({ databases: { pageSize: Number(e.target.value) } })} className="border rounded-lg px-1.5 py-1 bg-background">
-              {[10,25,50,100].map(n=> <option key={n} value={n}>{n}/page</option>)}
+              {[10,25,50,100,250,500].map(n=> <option key={n} value={n}>{n}/page</option>)}
             </select>
           </div>
         </div>
@@ -343,7 +373,7 @@ export function DatabaseViews({ database, compact, initialViewType, onViewTypeCh
   )
 }
 
-function FilterModal({ database, initial, onApply, onClose }: { database: Database, initial?: FilterGroup, onApply:(g?:FilterGroup)=>void, onClose:()=>void }) {
+export function FilterModal({ database, initial, onApply, onClose }: { database: Database, initial?: FilterGroup, onApply:(g?:FilterGroup)=>void, onClose:()=>void }) {
   const [op, setOp] = useState<'and'|'or'|'not'>(initial?.op as any || 'and')
   const [conds, setConds] = useState<FilterCondition[]>(()=> (initial?.conditions as FilterCondition[] || []))
   const add = () => setConds([...conds, { propertyId: database.properties[0].id, operator: 'equals', value: '' }])
@@ -379,7 +409,7 @@ function FilterModal({ database, initial, onApply, onClose }: { database: Databa
   )
 }
 
-function SortModal({ database, current, onApply, onClose }: { database: Database, current: any, onApply:(s:any)=>void, onClose:()=>void }) {
+export function SortModal({ database, current, onApply, onClose }: { database: Database, current: any, onApply:(s:any)=>void, onClose:()=>void }) {
   const [prop, setProp] = useState(current?.propertyId || database.properties[0].id)
   const [dir, setDir] = useState(current?.direction || 'asc')
   return (
@@ -477,8 +507,177 @@ function TableView({ database, records, hiddenCols, onHide, onOpenRecord, onUpda
 
   const totalWidth = visibleProps.reduce((n, p) => n + widthOf(p.id), 0) + 32 + 40 + 40
 
+  // Virtualized body (100+ rows on this page). Row markup mirrors the classic
+  // <tbody> below (keep in sync). Data flows via ctxRef so the row component
+  // type is created once per mount — rows re-render but never remount, so
+  // inline editing keeps focus. Row menus may clip at the scrollport edge
+  // (standard virtualized-grid tradeoff).
+  const virtualized = records.length > VIRTUALIZE_AFTER
+  const ctxRef = useRef<any>(null)
+  ctxRef.current = { records, database, visibleProps, widthOf, editing, setEditing, commitCell, rowMenu, setRowMenu, onOpenRecord, onDelete, createRecord, totalWidth }
+  const RowComponentRef = useRef<any>(null)
+  if (!RowComponentRef.current) {
+    RowComponentRef.current = function VirtualRecordRow({ index, style }: { index: number; style: CSSProperties }) {
+      const ctx: any = ctxRef.current
+      const r = ctx.records[index] as DatabaseRecord | undefined
+      if (!r) return null
+      return (
+        <div style={{ ...style, width: ctx.totalWidth }} className="flex border-b border-border/50 bg-background hover:bg-muted/40" onClick={() => { ctx.setEditing(null); ctx.setRowMenu(null) }}>
+          <div className="flex h-full w-8 shrink-0 items-center justify-center px-1">
+            <button
+              onClick={e => { e.stopPropagation(); ctx.setRowMenu(ctx.rowMenu === r.id ? null : r.id) }}
+              className="grid h-5 w-5 place-items-center rounded text-muted-foreground/0 hover:bg-muted hover:text-muted-foreground"
+              title="Row actions"
+            >
+              <GripVertical size={13} />
+            </button>
+          </div>
+          {ctx.visibleProps.map((p: any) => {
+            const key = `${r.id}:${p.id}`
+            const isEditing = ctx.editing === key
+            return (
+              <div
+                key={p.id}
+                style={{ width: ctx.widthOf(p.id), maxWidth: ctx.widthOf(p.id) }}
+                className="flex h-full shrink-0 items-center overflow-hidden px-2"
+                onClick={e => {
+                  e.stopPropagation()
+                  if (p.type === 'checkbox') return
+                  if (!isEditing) ctx.setEditing(key)
+                }}
+                onDoubleClick={e => { e.stopPropagation(); ctx.setEditing(key) }}
+              >
+                <PropertyCell
+                  prop={p}
+                  record={r}
+                  value={r.properties[p.id]}
+                  editing={isEditing}
+                  onStartEdit={() => ctx.setEditing(key)}
+                  onCommit={v => ctx.commitCell(r, p.id, v, p.type === 'multi_select')}
+                  onCancel={() => ctx.setEditing(null)}
+                />
+              </div>
+            )
+          })}
+          <div className="w-10 shrink-0" />
+          <div className="relative flex h-full w-10 shrink-0 items-center justify-center px-1">
+            <button
+              onClick={e => { e.stopPropagation(); ctx.setRowMenu(ctx.rowMenu === r.id ? null : r.id) }}
+              className="rounded p-1 text-muted-foreground/0 hover:bg-muted hover:text-muted-foreground"
+              title="Row actions"
+            >
+              <MoreHorizontal size={14} />
+            </button>
+            {ctx.rowMenu === r.id && (
+              <span className="block" onClick={e => e.stopPropagation()}>
+                <span className="fixed inset-0 z-30" onClick={() => ctx.setRowMenu(null)} />
+                <span className="absolute right-0 top-full z-40 mt-1 block w-[180px] overflow-hidden rounded-xl border bg-popover p-1 shadow-xl">
+                  <button
+                    onClick={() => { ctx.onOpenRecord(r.id); ctx.setRowMenu(null) }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-accent"
+                  >
+                    <ArrowUpRight size={13} className="text-muted-foreground" /> Open as page
+                  </button>
+                  <button
+                    onClick={() => { ctx.createRecord(ctx.database.id, { ...r.properties }); ctx.setRowMenu(null) }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-accent"
+                  >
+                    <Copy size={13} className="text-muted-foreground" /> Duplicate row
+                  </button>
+                  <button
+                    onClick={() => { ctx.onDelete(r.id); ctx.setRowMenu(null) }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-red-600 hover:bg-red-500/10"
+                  >
+                    <Trash2 size={13} /> Delete row
+                  </button>
+                </span>
+              </span>
+            )}
+          </div>
+        </div>
+      )
+    }
+  }
+
   return (
     <div className="overflow-hidden rounded-xl border bg-background" onClick={() => { setEditing(null); setMenuProp(null); setRowMenu(null) }}>
+      {virtualized ? (
+      <div className="w-full overflow-x-auto">
+        <div style={{ width: Math.max(totalWidth, 640) }}>
+          <div className="flex border-b bg-background text-[13px] font-normal text-muted-foreground">
+            <div className="w-8 shrink-0 px-1 py-2" />
+            {visibleProps.map(p => {
+              const def = propertyDefFor(p.type)
+              const sorted = sortState?.propertyId === p.id
+              return (
+                <div
+                  key={p.id}
+                  draggable
+                  onDragStart={e => { setDragProp(p.id); e.dataTransfer.effectAllowed = 'move' }}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => { e.preventDefault(); dropColumn(p.id) }}
+                  onDragEnd={() => setDragProp(null)}
+                  style={{ width: widthOf(p.id) }}
+                  className={cn('group relative shrink-0 select-none p-0 text-left font-normal', dragProp === p.id && 'opacity-50')}
+                  onClick={e => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() => setMenuProp(menuProp === p.id ? null : p.id)}
+                    className="flex w-full items-center gap-1.5 px-2 py-2 hover:bg-muted/50"
+                    title={`${p.name} (${p.type}) — click for column menu`}
+                  >
+                    <span className="shrink-0 text-[13px] text-muted-foreground/70">{def.icon}</span>
+                    <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                    {sorted ? (
+                      <span className="flex shrink-0 items-center text-foreground" onClick={e => { e.stopPropagation(); handleSort(p.id) }} title="Toggle sort">
+                        {sortState?.direction === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
+                      </span>
+                    ) : (
+                      <span className="hidden shrink-0 items-center group-hover:flex">
+                        <span onClick={e => { e.stopPropagation(); handleSort(p.id) }} className="rounded p-0.5 hover:bg-muted" title="Sort">
+                          <ArrowUpDown size={10} className="text-muted-foreground/70" />
+                        </span>
+                      </span>
+                    )}
+                    <ChevronDown size={12} className={cn('hidden shrink-0 text-muted-foreground/60 group-hover:block', menuProp === p.id && 'block rotate-180')} />
+                  </button>
+                  {menuProp === p.id && (
+                    <span className="relative block">
+                      <ColumnHeaderMenu
+                        database={database}
+                        property={p}
+                        onClose={() => setMenuProp(null)}
+                        onEdit={() => { setEditPropId(p.id); setMenuProp(null) }}
+                        onHide={() => { onHide(p.id); setMenuProp(null) }}
+                      />
+                    </span>
+                  )}
+                  <span
+                    onMouseDown={e => startResize(e, p.id)}
+                    className="absolute bottom-0 right-0 top-0 w-1 cursor-col-resize hover:bg-foreground/20"
+                    title="Drag to resize"
+                  />
+                </div>
+              )
+            })}
+            <div className="w-10 shrink-0 px-1 py-2">
+              <button onClick={e => { e.stopPropagation(); setShowAddProp(true) }} className="mx-auto grid h-6 w-6 place-items-center rounded-md text-muted-foreground/70 hover:bg-muted hover:text-foreground" title="Add property">
+                <Plus size={14} />
+              </button>
+            </div>
+            <div className="w-10 shrink-0" />
+          </div>
+          <VirtualList
+            rowComponent={RowComponentRef.current}
+            rowCount={records.length}
+            rowHeight={VIRTUAL_ROW_H}
+            rowProps={{}}
+            overscanCount={4}
+            style={{ height: Math.min(VIRTUAL_VIEW_H, records.length * VIRTUAL_ROW_H), width: Math.max(totalWidth, 640) }}
+          />
+        </div>
+      </div>
+      ) : (
       <div className="w-full overflow-x-auto">
         <table className="border-collapse text-sm" style={{ width: Math.max(totalWidth, 640) }}>
           <thead className="border-b text-[13px] font-normal text-muted-foreground">
@@ -632,6 +831,7 @@ function TableView({ database, records, hiddenCols, onHide, onOpenRecord, onUpda
           </tbody>
         </table>
       </div>
+      )}
 
       <button onClick={addRow} className="flex w-full items-center gap-1.5 border-t border-border/50 px-3 py-2 text-left text-[13px] text-muted-foreground/80 hover:bg-muted/40 hover:text-muted-foreground">
         <Plus size={13} /> New

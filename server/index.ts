@@ -7,7 +7,7 @@ import { v4 as uuid } from 'uuid'
 import fs from 'fs'
 import path from 'path'
 import dotenv from 'dotenv'
-import { usingPg, pgQuery, pgOk, mapUser, mapWorkspace, mapPage, mapBlock, mapRecord, mapFile, mapComment, mapActivity, mapNotification } from './pg.js'
+import { usingPg, pgQuery, pgOk, mapUser, mapWorkspace, mapPage, mapBlock, mapRecord, mapFile, mapComment, mapActivity, mapNotification, mapVersion } from './pg.js'
 import { hashPassword, verifyPassword, signToken, authMiddleware } from './auth.js'
 import { canDoPageAction, resolveWorkspaceRole, allowLegacyOpenAccess, minimumRoleForPagePatch, type Role, type PageAction } from './acl.js'
 import { getCorsOrigin, generalLimiter, authLimiter, aiLimiter, validateFileInput, sanitizeFilename, MAX_BLOCK_CONTENT, MAX_COMMENT_CONTENT, MAX_AI_PROMPT, jwtSecretIsDefault } from './security.js'
@@ -53,6 +53,7 @@ type DB = {
   activities: any[]
   notifications: any[]
   shares: any[]
+  versions: any[]
 }
 
 function loadDB(): DB {
@@ -63,11 +64,12 @@ function loadDB(): DB {
       return parsed
     }
   } catch {}
-  return { users:[], workspaces:[], pages:[], blocks:[], databases:[], records:[], files:[], comments:[], activities:[], notifications:[], shares:[] }
+  return { users:[], workspaces:[], pages:[], blocks:[], databases:[], records:[], files:[], comments:[], activities:[], notifications:[], shares:[], versions:[] }
 }
 let db: DB = loadDB()
 if (!Array.isArray((db as any).shares)) (db as any).shares = []
 if (!Array.isArray((db as any).notifications)) (db as any).notifications = []
+if (!Array.isArray((db as any).versions)) (db as any).versions = []
 function saveDB() {
   try { fs.mkdirSync(path.dirname(DB_PATH), { recursive:true }); fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2)) } catch(e){ console.error('saveDB', e)}
 }
@@ -150,6 +152,25 @@ async function workspaceIdForRecord(recordId: string | null | undefined): Promis
   }
   const dbId = db.records.find((r: any) => r.id === recordId)?.databaseId
   return workspaceIdForDatabase(dbId ?? null)
+}
+
+// Sharing — public reads via bearer invite-link token (?token=).
+// A valid (non-revoked) link for the exact page grants read access to that
+// page + its blocks without workspace membership. All writes still require
+// auth + membership. Returns the link, or null when the token doesn't match
+// this page.
+async function shareLinkForPage(token: unknown, pageId: string): Promise<{ permission: string, visibility: string } | null> {
+  if (typeof token !== 'string' || !token || token.length > 200) return null
+  if (usingPg) {
+    try {
+      const rows = await pgQuery('SELECT page_id, permission, visibility FROM share_links WHERE token=$1', [token])
+      const r = rows[0] as any
+      if (!r || String(r.page_id) !== String(pageId)) return null
+      return { permission: r.permission, visibility: r.visibility }
+    } catch { return null }
+  }
+  const link = (db.shares ?? []).find((s: any) => s.token === token && String(s.pageId) === String(pageId))
+  return link ? { permission: link.permission, visibility: link.visibility } : null
 }
 
 // Workspaces the caller may see: owned, explicitly membered, or legacy-open
@@ -312,6 +333,33 @@ app.get('/api/pages', authStub, async (req:any, res)=> {
   }
   res.json(db.pages.filter((p: any)=> allowed.has(String(p.workspaceId))))
 })
+// Single page — members need viewer+; anyone holding a valid invite-link
+// token (?token=) may read without membership or a session. Writes still
+// require auth + membership.
+app.get('/api/pages/:id', authStub, async (req:any, res)=> {
+  const token = req.query.token as string | undefined
+  let viaToken = false
+  if (token !== undefined) {
+    const link = await shareLinkForPage(token, req.params.id)
+    if (!link) return res.status(404).json({ error:'Invalid or revoked link' })
+    viaToken = true
+  }
+  if (!viaToken) {
+    const wsId = await workspaceIdForPage(req.params.id)
+    if (!wsId) return res.status(404).json({ error:'Not found' })
+    if (!await requireWorkspaceAction(res, wsId, (req as any).userId, 'view')) return
+  }
+  if (usingPg) {
+    try {
+      const rows = await pgQuery('SELECT * FROM pages WHERE id=$1', [req.params.id])
+      if (!rows[0]) return res.status(404).json({ error:'Not found' })
+      return res.json(mapPage(rows[0]))
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  const page = db.pages.find((p:any)=> String(p.id)===String(req.params.id))
+  if (!page) return res.status(404).json({ error:'Not found' })
+  res.json(page)
+})
 app.post('/api/pages', authStub, async (req:any, res)=> {
   const parsed = pageSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
@@ -421,10 +469,20 @@ app.post('/api/pages/:id/duplicate', authStub, async (req:any, res)=> {
 })
 
 // Blocks — reads need viewer+, all writes need editor+ in the owning workspace.
+// A valid invite-link token (?token=) grants reads without membership.
 app.get('/api/pages/:id/blocks', authStub, async (req:any,res)=> {
-  const wsId = await workspaceIdForPage(req.params.id)
-  if (!wsId) return res.status(404).json({ error:'Not found' })
-  if (!await requireWorkspaceAction(res, wsId, (req as any).userId, 'view')) return
+  const token = req.query.token as string | undefined
+  let viaToken = false
+  if (token !== undefined) {
+    const link = await shareLinkForPage(token, req.params.id)
+    if (!link) return res.status(404).json({ error:'Invalid or revoked link' })
+    viaToken = true
+  }
+  if (!viaToken) {
+    const wsId = await workspaceIdForPage(req.params.id)
+    if (!wsId) return res.status(404).json({ error:'Not found' })
+    if (!await requireWorkspaceAction(res, wsId, (req as any).userId, 'view')) return
+  }
   if (usingPg) {
     try { return res.json((await pgQuery('SELECT * FROM blocks WHERE page_id=$1 ORDER BY position, id', [req.params.id])).map(mapBlock)) } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
   }
@@ -840,6 +898,96 @@ app.delete('/api/shares/:token', authStub, async (req:any,res)=> {
   const idx = db.shares.findIndex(s=> s.token===req.params.token)
   if (idx===-1) return res.status(404).json({ error:'Not found' })
   db.shares.splice(idx,1); saveDB()
+  res.json({ ok:true })
+})
+
+// Page versions — snapshot history per page (server persistence for the
+// local-first `src/lib/versions.ts` store). Reads need viewer+ in the owning
+// workspace; creating/deleting needs editor+. Snapshots are append-only and
+// capped at 20/page (oldest drops) on both backends. Clients may pass `id`
+// (UUID) for idempotent first-run uploads; `version` is always server-assigned
+// (max+1) so concurrent writers can't collide.
+const MAX_VERSIONS_PER_PAGE_SERVER = 20
+const versionBodySchema = z.object({
+  id: uuidOrAbsent,
+  blocksSnapshot: z.array(z.any()).max(2000).default([]),
+  message: z.string().max(500).optional(),
+})
+app.get('/api/pages/:id/versions', authStub, async (req:any,res)=> {
+  const wsId = await workspaceIdForPage(req.params.id)
+  if (!wsId) return res.status(404).json({ error:'Not found' })
+  if (!await requireWorkspaceAction(res, wsId, (req as any).userId, 'view')) return
+  if (usingPg) {
+    try {
+      const rows = await pgQuery('SELECT * FROM page_versions WHERE page_id=$1 ORDER BY version ASC', [req.params.id])
+      return res.json(rows.map(mapVersion))
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  res.json((db.versions ?? []).filter((v:any)=> v.pageId===req.params.id).sort((a:any,b:any)=> a.version-b.version))
+})
+app.post('/api/pages/:id/versions', authStub, async (req:any,res)=> {
+  const parsed = versionBodySchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
+  const wsId = await workspaceIdForPage(req.params.id)
+  if (!wsId) return res.status(404).json({ error:'Not found' })
+  if (!await requireWorkspaceAction(res, wsId, (req as any).userId, 'edit')) return
+  const b = parsed.data as Record<string, any>
+  if (usingPg) {
+    try {
+      if (b.id) {
+        const existing = await pgQuery('SELECT * FROM page_versions WHERE id=$1', [b.id])
+        if (existing[0]) return res.status(200).json(mapVersion(existing[0]))
+      }
+      const nxt = await pgQuery('SELECT COALESCE(MAX(version),0)+1 AS next FROM page_versions WHERE page_id=$1', [req.params.id])
+      const nextVersion = Number((nxt[0] as any)?.next ?? 1)
+      const rows = await pgQuery(
+        b.id
+          ? 'INSERT INTO page_versions(id, page_id, version, blocks_snapshot, message, created_by) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING RETURNING *'
+          : 'INSERT INTO page_versions(page_id, version, blocks_snapshot, message, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+        b.id
+          ? [b.id, req.params.id, nextVersion, JSON.stringify(b.blocksSnapshot ?? []), b.message ?? null, (req as any).userId]
+          : [req.params.id, nextVersion, JSON.stringify(b.blocksSnapshot ?? []), b.message ?? null, (req as any).userId],
+      )
+      if (!rows[0] && b.id) {
+        const existing = await pgQuery('SELECT * FROM page_versions WHERE id=$1', [b.id])
+        if (existing[0]) return res.status(200).json(mapVersion(existing[0]))
+      }
+      // Enforce the per-page cap server-side (FIFO — oldest drops).
+      await pgQuery(
+        'DELETE FROM page_versions WHERE page_id=$1 AND id NOT IN (SELECT id FROM page_versions WHERE page_id=$1 ORDER BY version DESC LIMIT $2)',
+        [req.params.id, MAX_VERSIONS_PER_PAGE_SERVER],
+      ).catch(() => {})
+      return res.status(201).json(mapVersion(rows[0]))
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  if (b.id && (db.versions ?? []).some((v:any)=> v.id===b.id)) {
+    return res.status(200).json(db.versions.find((v:any)=> v.id===b.id))
+  }
+  const existing = (db.versions ?? []).filter((v:any)=> v.pageId===req.params.id)
+  const nextVersion = existing.reduce((m:number,v:any)=> Math.max(m, typeof v.version === 'number' ? v.version : 0), 0) + 1
+  const v = { id: b.id ?? uuid(), pageId: req.params.id, version: nextVersion, blocksSnapshot: b.blocksSnapshot ?? [], message: b.message, createdBy: (req as any).userId, createdAt: new Date().toISOString() }
+  db.versions = [...(db.versions ?? []), v].filter((x:any)=> true)
+  // Cap: keep newest 20 for this page, drop oldest.
+  const others = db.versions.filter((x:any)=> x.pageId!==req.params.id)
+  const mine = db.versions.filter((x:any)=> x.pageId===req.params.id).sort((a:any,b2:any)=> a.version-b2.version).slice(-MAX_VERSIONS_PER_PAGE_SERVER)
+  db.versions = [...others, ...mine]
+  saveDB()
+  res.status(201).json(v)
+})
+app.delete('/api/pages/:id/versions/:versionId', authStub, async (req:any,res)=> {
+  const wsId = await workspaceIdForPage(req.params.id)
+  if (!wsId) return res.status(404).json({ error:'Not found' })
+  if (!await requireWorkspaceAction(res, wsId, (req as any).userId, 'edit')) return
+  if (usingPg) {
+    try {
+      const out = await pgQuery('DELETE FROM page_versions WHERE id=$1 AND page_id=$2 RETURNING id', [req.params.versionId, req.params.id])
+      if (!out[0]) return res.status(404).json({ error:'Not found' })
+      return res.json({ ok:true })
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  const idx = (db.versions ?? []).findIndex((v:any)=> v.id===req.params.versionId && v.pageId===req.params.id)
+  if (idx===-1) return res.status(404).json({ error:'Not found' })
+  db.versions.splice(idx,1); saveDB()
   res.json({ ok:true })
 })
 

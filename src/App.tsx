@@ -7,6 +7,7 @@ import { PageView } from '@/pages/PageView'
 import { DatabasePage } from '@/pages/DatabasePage'
 import { Settings } from '@/pages/Settings'
 import { Auth } from '@/pages/Auth'
+import { SharedPage } from '@/pages/SharedPage'
 import { ShareDialog } from '@/components/features/ShareDialog'
 import { NotificationCenter } from '@/components/features/NotificationCenter'
 import { resolveShareToken } from '@/lib/sync'
@@ -21,7 +22,8 @@ import { FileManager } from '@/components/features/FileManager'
 export default function App() {
   const { selectedPageId, selectedDatabaseId, setSelectedPage, setSelectedDatabase } = useAppStore()
   const sessionToken = useAppStore((s) => s.token)
-  const [route, setRoute] = useState<'dashboard'|'page'|'database'|'settings'|'templates'|'trash'|'files'|'graph'|'shared'|'auth'>('dashboard')
+  const [route, setRoute] = useState<'dashboard'|'page'|'database'|'settings'|'templates'|'trash'|'files'|'graph'|'shared'|'auth'|'join'>('dashboard')
+  const [joinToken, setJoinToken] = useState<string | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(()=> !localStorage.getItem('openmanas_onboarded'))
 
   // Slice 2: with a stored session, pull shared state once on boot.
@@ -35,7 +37,8 @@ export default function App() {
     try { t = localStorage.getItem('openmanas_pending_share'); localStorage.removeItem('openmanas_pending_share') } catch { /* noop */ }
     if (t) void joinShare(t)
   }, [sessionToken])
-  // Slice 3: invite-link join flow (#/join/<token>).
+  // Slice 3: invite-link join flow (#/join/<token>). Logged in → open the page
+  // in the workspace; logged out → read-only public preview (no sign-in wall).
   useEffect(()=> {
     const m = window.location.hash.match(/^#\/join\/([a-f0-9]+)/i)
     if (!m) return
@@ -44,15 +47,17 @@ export default function App() {
     if (useAppStore.getState().token) void joinShare(t)
     else {
       try { localStorage.setItem('openmanas_pending_share', t) } catch { /* noop */ }
-      setRoute('auth')
+      setJoinToken(t)
+      setRoute('join')
     }
   }, [])
 
   const navigate = (r: string) => {
     // clear selections when navigating to non-page/db routes
-    if (['dashboard','templates','trash','files','graph','shared','settings','auth'].includes(r)) {
+    if (['dashboard','templates','trash','files','graph','shared','settings','auth','join'].includes(r)) {
       setSelectedPage(null); setSelectedDatabase(null)
     }
+    if (r !== 'join') setJoinToken(null)
     setRoute(r as any)
   }
 
@@ -83,6 +88,7 @@ export default function App() {
           {route==='database' && selectedDatabaseId && <DatabasePage databaseId={selectedDatabaseId} />}
           {route==='settings' && <Settings />}
           {route==='auth' && <Auth onNavigate={navigate as any} />}
+          {route==='join' && joinToken && <SharedPage token={joinToken} onSignIn={()=> navigate('auth')} />}
           {route==='templates' && <Templates />}
           {route==='trash' && <Trash />}
           {route==='shared' && <Shared />}

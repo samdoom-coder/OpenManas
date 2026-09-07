@@ -9,7 +9,7 @@ import { Modal } from '@/components/ui/modal'
 import { Button } from '@/components/ui/button'
 import { storageService } from '@/lib/storageService'
 import { useToast } from '@/components/ui/toast'
-import { DatabaseViews } from '@/components/database/DatabaseViews'
+import { DatabaseViews, FilterModal, SortModal } from '@/components/database/DatabaseViews'
 import { EmojiPicker } from '@/components/ui/emojiPicker'
 import { PageIconInline } from '@/components/ui/pageIcon'
 import { FontPicker } from '@/components/ui/fontPicker'
@@ -17,6 +17,7 @@ import { useBlockHistory } from '@/hooks/useBlockHistory'
 import { useCollabPage } from '@/hooks/useCollab'
 import { useCollabStore } from '@/lib/collabClient'
 import { fontFamilyCSS } from '@/lib/fonts'
+import { resolveEmbedFilter, resolveEmbedSort, hasEmbedOverrides } from '@/lib/databaseEngine'
 import { acceptMatches } from '@/lib/fileRefs'
 import { previewUrl, kindOf, MAX_FILE_SIZE } from '@/components/features/FileManager'
 
@@ -880,15 +881,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
             </div>
           </div>
             <div ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} onMouseUp={handleMouseUp} data-placeholder="Optional note..." className="mt-2 text-xs outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground" />
-            {block.type==='database_embed' && block.content && (()=> {
-              const db:any = databases.find((d:any)=> d.id===block.content)
-              if (!db) return null
-              // Linked DB (Phase 3): per-embed view override lives in block.properties.viewType
-              // (blocks.properties JSONB in Postgres — no migration needed).
-              const linkedOn = (useAppStore.getState().settings?.databases?.linkedEmbeds ?? false) as boolean
-              const embedView = (block.properties as any)?.viewType as any
-              return <div className="mt-3 border rounded-xl overflow-hidden bg-card shadow-sm"><div className="p-2.5 bg-muted/40 border-b text-xs font-medium flex items-center justify-between gap-2"><span className="flex items-center gap-2">▦ {db.name} — inline</span><span className="flex items-center gap-2">{linkedOn ? <select aria-label="Embed view" value={embedView || ''} onChange={e=> onChange({ properties:{ ...block.properties, viewType: e.target.value || undefined } as any })} className="text-[11px] border rounded-lg px-1.5 py-1 bg-background"><option value="">Auto</option>{(['table','board','gallery','calendar','list','timeline'] as const).map(t=> <option key={t} value={t}>{t}</option>)}</select> : null}<span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500 text-white">LIVE</span></span></div><div className="max-h-[480px] overflow-auto"><DatabaseViews database={db} compact initialViewType={linkedOn ? embedView || undefined : undefined} onViewTypeChange={linkedOn ? (t)=> onChange({ properties:{ ...block.properties, viewType: t } as any }) : undefined} /></div></div>
-            })()}
+            {block.type==='database_embed' && block.content && <DatabaseEmbedCard block={block} onChange={onChange} />}
             {block.type==='page_embed' && block.content && (()=> { const pg:any = pages.find((p:any)=> p.id===block.content); return pg ? <div className="mt-3 p-3 rounded-xl border bg-card"><div className="text-sm font-medium flex items-center gap-1.5"><PageIconInline page={pg} /> {pg.title}</div><div className="text-xs text-muted-foreground line-clamp-2">{pg.description||'Page preview'}</div><button onClick={()=> useAppStore.getState().setSelectedPage(pg.id)} className="mt-2 text-xs text-violet-600 hover:underline">Open →</button></div> : null })()}
           </div>
         {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
@@ -970,6 +963,60 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
 
       {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties as any} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
       <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
+    </div>
+  )
+}
+
+// Linked database embed card — per-embed view/filter/sort overrides live in
+// block.properties (viewType/embedFilter/embedSort, blocks.properties JSONB in
+// Postgres — no migration needed) and apply only when Settings → Databases →
+// linked embeds is on. Clearing an override falls back to the database view.
+function DatabaseEmbedCard({ block, onChange }: { block: Block, onChange:(p:Partial<Block>)=>void }) {
+  const databases = useAppStore(s => s.databases)
+  const linkedOn = useAppStore(s => s.settings?.databases?.linkedEmbeds ?? false)
+  const [showFilter, setShowFilter] = useState(false)
+  const [showSort, setShowSort] = useState(false)
+  const db: any = databases.find((d: any) => d.id === block.content)
+  if (!db) return null
+  const embedView = (block.properties as any)?.viewType as any
+  const embedFilter = resolveEmbedFilter(linkedOn, block.properties as any)
+  const embedSort = resolveEmbedSort(linkedOn, block.properties as any)
+  const custom = hasEmbedOverrides(linkedOn, block.properties as any)
+  const setProps = (patch: Record<string, unknown>) => onChange({ properties: { ...block.properties, ...patch } as any })
+  return (
+    <div className="mt-3 border rounded-xl overflow-hidden bg-card shadow-sm">
+      <div className="p-2.5 bg-muted/40 border-b text-xs font-medium flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 min-w-0">▦ <span className="truncate">{db.name} — inline</span></span>
+        <span className="flex items-center gap-1.5 shrink-0">
+          {custom && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-700" title="This embed has its own filter/sort">Custom</span>}
+          {linkedOn ? (
+            <>
+              <select aria-label="Embed view" value={embedView || ''} onChange={e=> setProps({ viewType: e.target.value || undefined })} className="text-[11px] border rounded-lg px-1.5 py-1 bg-background">
+                <option value="">Auto</option>
+                {(['table','board','gallery','calendar','list','timeline'] as const).map(t=> <option key={t} value={t}>{t}</option>)}
+              </select>
+              <button onClick={()=> setShowFilter(true)} className={`text-[11px] border rounded-lg px-1.5 py-1 ${embedFilter ? 'bg-amber-500/15 border-amber-500/40' : 'bg-background'}`} title={embedFilter ? `Embed filter: ${embedFilter.conditions.length} condition(s) — click to edit` : 'Filter just this embed'}>Filter{embedFilter ? `•${embedFilter.conditions.length}` : ''}</button>
+              <button onClick={()=> setShowSort(true)} className={`text-[11px] border rounded-lg px-1.5 py-1 ${embedSort ? 'bg-amber-500/15 border-amber-500/40' : 'bg-background'}`} title={embedSort ? 'Embed sort — click to edit' : 'Sort just this embed'}>Sort{embedSort ? '•1' : ''}</button>
+            </>
+          ) : null}
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500 text-white">LIVE</span>
+        </span>
+      </div>
+      <div className="max-h-[480px] overflow-auto">
+        <DatabaseViews
+          key={`${db.id}:${linkedOn ? 'linked' : 'plain'}`}
+          database={db}
+          compact
+          initialViewType={linkedOn ? embedView || undefined : undefined}
+          onViewTypeChange={linkedOn ? (t)=> setProps({ viewType: t }) : undefined}
+          initialFilter={embedFilter}
+          onFilterChange={linkedOn ? (g)=> setProps({ embedFilter: g }) : undefined}
+          initialSort={embedSort ?? null}
+          onSortChange={linkedOn ? (s)=> setProps({ embedSort: s ?? undefined }) : undefined}
+        />
+      </div>
+      {showFilter && <FilterModal database={db} initial={embedFilter} onApply={g=> { setProps({ embedFilter: g }); setShowFilter(false) }} onClose={()=> setShowFilter(false)} />}
+      {showSort && <SortModal database={db} current={embedSort} onApply={s=> { setProps({ embedSort: s ?? undefined }); setShowSort(false) }} onClose={()=> setShowSort(false)} />}
     </div>
   )
 }

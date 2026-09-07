@@ -481,10 +481,12 @@ function CommentSection({ pageId }: { pageId:string }) {
 }
 
 function PageVersionHistory({ pageId }: { pageId:string }) {
-  const { versions, blocks, captureVersion, restoreVersion, user } = useAppStore()
+  const { versions, blocks, captureVersion, restoreVersion, refreshVersions, user } = useAppStore()
   const { push } = useToast()
   const [openId, setOpenId] = useState<string | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  // Pull server history on open (best-effort; local cache stays on failure).
+  useEffect(() => { void refreshVersions(pageId) }, [pageId])
   const list = useMemo(() => [...(versions[pageId] ?? [])].sort((a, b) => b.version - a.version), [versions, pageId])
   const current = useMemo(() => blocks.filter(b => b.pageId === pageId).sort((a, b) => a.position - b.position), [blocks, pageId])
   const openVersion = list.find(v => v.id === openId) ?? null

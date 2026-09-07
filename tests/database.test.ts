@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { paginate, pageCount, evaluateFormula, evaluateRollup } from '../src/lib/databaseEngine'
+import { paginate, pageCount, evaluateFormula, evaluateRollup, resolveEmbedFilter, resolveEmbedSort, hasEmbedOverrides } from '../src/lib/databaseEngine'
 
 describe('pagination (Postgres LIMIT/OFFSET mirror)', () => {
   const items = Array.from({ length: 95 }, (_, i) => i + 1)
@@ -65,5 +65,36 @@ describe('rollup evaluation', () => {
   it('returns null without relation target', () => {
     const prop = { id: 'r3', name: 'Count', type: 'rollup' } as any
     expect(evaluateRollup(prop, { database, record: site, allRecords })).toBeNull()
+  })
+})
+
+describe('linked embed overrides (per-embed filter/sort)', () => {
+  const filter = { op: 'and', conditions: [{ propertyId: 'p1', operator: 'equals', value: 'x' }] } as any
+  const sort = { propertyId: 'p1', direction: 'desc' } as const
+  it('returns overrides when linked embeds are on', () => {
+    const props = { viewType: 'board', embedFilter: filter, embedSort: sort }
+    expect(resolveEmbedFilter(true, props)).toEqual(filter)
+    expect(resolveEmbedSort(true, props)).toEqual(sort)
+    expect(hasEmbedOverrides(true, props)).toBe(true)
+  })
+  it('ignores overrides when linked embeds are off', () => {
+    const props = { viewType: 'board', embedFilter: filter, embedSort: sort }
+    expect(resolveEmbedFilter(false, props)).toBeUndefined()
+    expect(resolveEmbedSort(false, props)).toBeUndefined()
+    expect(hasEmbedOverrides(false, props)).toBe(false)
+  })
+  it('falls back when overrides are missing or cleared', () => {
+    expect(resolveEmbedFilter(true, {})).toBeUndefined()
+    expect(resolveEmbedSort(true, { embedSort: undefined })).toBeUndefined()
+    expect(resolveEmbedFilter(true, undefined)).toBeUndefined()
+    expect(hasEmbedOverrides(true, {})).toBe(false)
+  })
+  it('ignores malformed overrides so embeds never blank', () => {
+    expect(resolveEmbedFilter(true, { embedFilter: { op: 'xor', conditions: [] } })).toBeUndefined()
+    expect(resolveEmbedFilter(true, { embedFilter: { op: 'and' } })).toBeUndefined()
+    expect(resolveEmbedFilter(true, { embedFilter: 'status=done' })).toBeUndefined()
+    expect(resolveEmbedSort(true, { embedSort: { propertyId: '', direction: 'asc' } })).toBeUndefined()
+    expect(resolveEmbedSort(true, { embedSort: { propertyId: 'p1', direction: 'sideways' } })).toBeUndefined()
+    expect(hasEmbedOverrides(true, { embedFilter: 'nope' })).toBe(false)
   })
 })

@@ -116,3 +116,10 @@ export const mapNotification = (r: any) => r && {
   body: r.body ?? undefined, read: r.read ?? false, link: r.link ?? undefined,
   createdAt: iso(r.created_at),
 }
+
+export const mapVersion = (r: any) => r && {
+  id: r.id, pageId: r.page_id, version: r.version ?? 0,
+  blocksSnapshot: r.blocks_snapshot ?? [],
+  message: r.message ?? undefined,
+  createdBy: r.created_by, createdAt: iso(r.created_at),
+}

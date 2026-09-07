@@ -16,9 +16,9 @@ export interface EditorPrefs {
 
 export interface DatabasePrefs {
   defaultView: DatabaseDefaultView
-  pageSize: number // future: drives pagination/virtualization (10k records)
+  pageSize: number // pagination window; table body virtualizes past 100 rows/page
   rollupFormulas: boolean // future: Phase 3 relation rollup evaluation
-  linkedEmbeds: boolean // future: Phase 3 linked database per-embed filter/sort
+  linkedEmbeds: boolean // Phase 3 linked database per-embed view/filter/sort
 }
 
 export interface NotificationPrefs {

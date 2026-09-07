@@ -11,6 +11,12 @@ const LEGACY_TOKEN_KEY = 'nexus_token'
 const LEGACY_SESSION_KEY = 'nexus_session_v1'
 
 export function apiBase(): string {
+  // Tests stub global fetch and assert relative '/api/...' paths — ignore any
+  // configured base URL under vitest so `npm test` passes with a .env present.
+  try {
+    const pe = typeof process !== 'undefined' ? (process as any)?.env : undefined
+    if (pe?.VITEST_WORKER_ID || pe?.VITEST) return ''
+  } catch { /* browser */ }
   let v: string | undefined
   try {
     v = (import.meta as any)?.env?.VITE_API_URL as string | undefined

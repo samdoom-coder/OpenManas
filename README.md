@@ -15,19 +15,19 @@ Distinct visual identity: soft neutrals, rounded 16-24px panels, subtle borders,
 ## Quick Start
 
 ```bash
-npm install --prefix /content/app
+npm install
 # dev frontend + backend
-npm run dev --prefix /content/app      # Vite on 5173
-npm run server --prefix /content/app   # Express on 3001
+npm run dev      # Vite on 5173
+npm run server   # Express on 3001
 # or both:
-npm run dev:all --prefix /content/app
+npm run dev:all
 
 # seeding (frontend uses localStorage seed; backend seeds server/db.json)
-npm run seed --prefix /content/app
+npm run seed
 
 # build
-npm run build --prefix /content/app
-npm run preview --prefix /content/app
+npm run build
+npm run preview
 ```
 
 App runs at http://localhost:5173 (proxies /api → 3001).
@@ -101,7 +101,7 @@ All POST/PATCH validated with Zod; errors return `{ error: ... }`.
 ## Testing
 
 ```bash
-npm test --prefix /content/app
+npm test
 ```
 
 Includes unit tests for block ops, filters, search, permissions.
@@ -109,7 +109,7 @@ Includes unit tests for block ops, filters, search, permissions.
 ## Production Build
 
 ```bash
-npm run build --prefix /content/app
+npm run build
 # serves dist via Express static
-PORT=3001 npm run server --prefix /content/app
+PORT=3001 npm run server
 ```

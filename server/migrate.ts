@@ -22,7 +22,7 @@ async function main() {
   // warning when the host doesn't provide it (semantic search still works
   // client-side). NOTE: the two 002 files are intentionally both applied in
   // this order (performance indexes, then page theme column).
-  const files = ['001_initial.sql', '002_db_performance.sql', '002_page_theme.sql', '003_derived.sql', '005_db_favorite.sql', '006_share_links.sql', '007_collab_indexes.sql', '008_activities_target_text.sql']
+  const files = ['001_initial.sql', '002_db_performance.sql', '002_page_theme.sql', '003_derived.sql', '005_db_favorite.sql', '006_share_links.sql', '007_collab_indexes.sql', '008_activities_target_text.sql', '009_page_versions_message.sql']
   try {
     for (const file of files) {
       const sql = fs.readFileSync(path.join(__dirname, '..', 'migrations', file), 'utf-8')

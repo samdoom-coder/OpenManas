@@ -39,3 +39,31 @@ describe('share links (client)', () => {
     expect(sync.shareUrl('tok')).toContain('#/join/tok')
   })
 })
+
+describe('share links (public reads)', () => {
+  it('fetches the shared page + blocks with the token query', async () => {
+    const page = { id: 'p1', title: 'Shared' }
+    const blocks = [{ id: 'b1', pageId: 'p1', position: 0 }]
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
+      calls.push(`${init?.method || 'GET'} ${url}`)
+      if (String(url).includes('/api/pages/p1/blocks')) return jsonOk(blocks)
+      if (String(url).includes('/api/pages/p1?')) return jsonOk(page)
+      throw new Error(`unexpected ${init?.method} ${url}`)
+    }))
+    expect(await sync.fetchSharedPage('p1', 'abc123')).toEqual(page)
+    expect(await sync.fetchSharedBlocks('p1', 'abc123')).toEqual(blocks)
+    expect(calls).toContain('GET /api/pages/p1?token=abc123')
+    expect(calls).toContain('GET /api/pages/p1/blocks?token=abc123')
+  })
+
+  it('URL-encodes tokens', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
+      calls.push(`${init?.method || 'GET'} ${url}`)
+      return jsonOk({})
+    }))
+    await sync.fetchSharedPage('p1', 'a+b/c')
+    expect(calls).toContain('GET /api/pages/p1?token=a%2Bb%2Fc')
+  })
+})
