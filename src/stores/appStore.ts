@@ -20,7 +20,7 @@ import {
   postRecord, patchRecord, deleteRecordRemote,
   postComment, patchCommentRemote, deleteCommentRemote,
   postActivity, postNotification, patchNotificationRemote,
-  postFileMeta, deleteFileRemote, fetchFiles, patchProfile,
+  postFileMeta, deleteFileRemote, fetchFiles, patchProfile, cancelAllPushes,
   fetchPageVersions, postPageVersion, fetchVersionsForPages,
 } from '@/lib/sync'
 
@@ -72,6 +72,20 @@ function resetToLocalDemo() {
     versions: {}, selectedPageId: (seed.pages as Page[])[1]?.id || null,
     selectedDatabaseId: null,
   })
+}
+
+/**
+ * Pull generation: pullFromServer is fire-and-forget and spans several
+ * awaits. If the account changes mid-pull (sign-in/out), the stale pull must
+ * NOT write the old account's data into the new session. Bumped on every
+ * sign-in/sign-up/sign-out; pulls check they are still current before
+ * touching state. Token AND user id are compared because demo-token is
+ * identical across demo accounts.
+ */
+let pullSeq = 0
+function invalidateInflightSync() {
+  pullSeq++
+  cancelAllPushes()
 }
 
 /** Version history: event → snapshot (auto throttled, manual always). */
@@ -380,6 +394,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     persist(get())
   },
   signIn: async (email, password) => {
+    invalidateInflightSync() // kill pending pushes from any previous account
     const r = await signInRequest(email.trim(), password)
     // New identity on this device? Drop the previous account's cached
     // workspace first so it never flashes — and can never be uploaded
@@ -396,6 +411,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     void get().pullFromServer()
   },
   signUp: async (email, name, password) => {
+    invalidateInflightSync() // kill pending pushes from any previous account
     const r = await signUpRequest(email.trim(), name.trim(), password)
     if (get().user.id !== r.user.id) {
       clearAccountContent()
@@ -407,6 +423,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     void get().pullFromServer()
   },
   signOut: () => {
+    invalidateInflightSync() // stale pulls/pushes must not touch the new session
     clearSession()
     // Leave no trace of the signed-in account on this device: back to a
     // fresh local demo instead of keeping the account's data visible.
@@ -444,10 +461,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   syncStatus: 'local',
   lastSyncError: null,
   pullFromServer: async () => {
-    if (!get().token) return 'local'
+    const mySeq = ++pullSeq
+    const myToken = get().token
+    const myUserId = get().user.id
+    if (!myToken) return 'local'
+    // A newer sign-in/out supersedes this pull — never write stale data.
+    const stale = () => mySeq !== pullSeq || get().token !== myToken || get().user.id !== myUserId
     set({ syncStatus: 'syncing', lastSyncError: null })
     try {
       const workspaces = await fetchWorkspaces()
+      if (stale()) return 'local'
       let ws = workspaces[0]
       if (!ws) {
         // First run against this backend: create workspace, upload local state.
@@ -479,6 +502,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             await postPageVersion(pageId, v).catch(() => {})
           }
         }
+        if (stale()) return 'local'
         set({
           workspace: { ...get().workspace, id: ws.id, name: ws.name ?? get().workspace.name },
           syncStatus: 'synced',
@@ -487,6 +511,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         return 'uploaded'
       }
       const pulled = await pullWorkspace(ws.id)
+      if (stale()) return 'local'
       // Versions are per-page and best-effort (older servers 404 → keep local).
       let remoteVersions: Record<string, PageVersion[]> | null = null
       try {
@@ -514,6 +539,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       persist(get())
       return 'up-to-date'
     } catch (e) {
+      if (stale()) return 'local' // superseded — don't flag an error either
       set({ syncStatus: 'error', lastSyncError: e instanceof Error ? e.message : 'Sync failed' })
       return 'error'
     }

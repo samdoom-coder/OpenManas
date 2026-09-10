@@ -106,8 +106,7 @@ describe('session persistence is quota-safe', () => {
   })
 })
 
-describe('validateSession (boot check)', () => {
-  it('refreshes the profile when the backend is reachable', async () => {
+describe('validateSession (boot check)', () => {  it('refreshes the profile when the backend is reachable', async () => {
     api.saveSession({ user: userB, token: 'tokB' })
     useAppStore.setState({ token: 'tokB', backendMode: 'server' })
     vi.stubGlobal('fetch', vi.fn(async () => jsonOk({ user: { ...userB, name: 'User B New', avatar: 'data:image/png;base64,AAA' } })))
@@ -132,5 +131,53 @@ describe('validateSession (boot check)', () => {
     expect(await useAppStore.getState().validateSession()).toBe('offline')
     expect(useAppStore.getState().token).toBe('tokB')
     expect(api.loadSession()?.token).toBe('tokB')
+  })
+})
+
+describe('in-flight sync cannot leak across accounts', () => {
+  it('pending debounced pushes from the old account never fire after sign-in', async () => {
+    // logged in as A, make an edit (queues a PATCH ~1s out)
+    api.saveSession({ user: userA, token: 'tokA' })
+    useAppStore.setState({ token: 'tokA', backendMode: 'server' })
+    const seedPage = useAppStore.getState().pages[0]
+    useAppStore.getState().updatePage(seedPage.id, { title: 'A last-second edit' })
+
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
+      calls.push(`${init?.method || 'GET'} ${url}`)
+      if (String(url).endsWith('/api/auth/login')) return jsonOk({ user: userB, token: 'tokB' })
+      if (String(url).endsWith('/api/workspaces') && !init?.method) return jsonOk([])
+      if (String(url).endsWith('/api/workspaces')) {
+        return jsonOk({ id: 'wB', name: 'W', ownerId: 'uB', createdAt: 't', updatedAt: 't' })
+      }
+      return jsonOk({ ok: true })
+    }))
+
+    await useAppStore.getState().signIn('b@x.y', 'password123')
+    await new Promise((r) => setTimeout(r, 1300)) // past the debounce window
+    expect(calls.some((c) => c.startsWith('PATCH'))).toBe(false)
+    expect(calls.some((c) => c.includes(seedPage.id))).toBe(false)
+  })
+
+  it('a slow pull started by the old account cannot overwrite the new session', async () => {
+    const PAGE_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa'
+    api.saveSession({ user: userA, token: 'tokA' })
+    useAppStore.setState({ token: 'tokA', backendMode: 'server' })
+    const pageA = { id: PAGE_A, workspaceId: 'wA', parentId: null, title: 'A server page', icon: 'x', isFavorite: false, isArchived: false, isTrashed: false, isShared: false, createdBy: 'uA', updatedBy: 'uA', createdAt: 't', updatedAt: 't' }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      await new Promise((r) => setTimeout(r, 80)) // slow backend
+      if (String(url).endsWith('/api/workspaces')) return jsonOk([{ id: 'wA', name: 'WA', ownerId: 'uA', createdAt: 't', updatedAt: 't' }])
+      if (String(url).includes('/api/pages?')) return jsonOk([pageA])
+      if (String(url).includes('/api/databases?')) return jsonOk([])
+      return jsonOk([])
+    }))
+
+    const pull = useAppStore.getState().pullFromServer()
+    await new Promise((r) => setTimeout(r, 20))
+    useAppStore.getState().signOut() // account gone mid-pull
+    await pull
+    await new Promise((r) => setTimeout(r, 150))
+    expect(useAppStore.getState().token).toBeNull()
+    expect(useAppStore.getState().pages.some((p) => p.id === PAGE_A)).toBe(false)
   })
 })

@@ -33,6 +33,22 @@ export function pushNow(op: () => Promise<unknown>) {
   op().catch((e) => setStatus('error', e instanceof Error ? e.message : 'Sync failed'))
 }
 
+/**
+ * Drop pending debounced pushes. The queued closures capture the OLD
+ * account's entity ids/patches but apiFetch reads the auth token at FIRE
+ * time — so without this, edits made just before signing in as someone else
+ * would fire seconds later under the NEW account's credentials and write the
+ * old account's pages/profile into it. Called on sign-in/sign-up/sign-out.
+ */
+export function cancelPush(key: string) {
+  if (timers.has(key)) clearTimeout(timers.get(key)!)
+  timers.delete(key)
+}
+export function cancelAllPushes() {
+  for (const t of timers.values()) clearTimeout(t)
+  timers.clear()
+}
+
 // --- PULL ---
 export interface PulledState {
   workspace: Workspace

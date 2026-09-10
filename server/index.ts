@@ -269,6 +269,15 @@ app.post('/api/workspaces', authStub, async (req:any, res)=> {
   if (usingPg) {
     try {
       const rows = await pgQuery('INSERT INTO workspaces(name, icon, owner_id) VALUES ($1,$2,$3) RETURNING *', [parsed.data.name, parsed.data.icon ?? null, (req as any).userId])
+      // Owner membership from birth: without a member row the workspace
+      // counts as "legacy-open" and is visible to EVERY user (the same
+      // second-login-sees-first-account's-data symptom as the JSON backend
+      // had). Best-effort so creation never fails on this.
+      await pgQuery(
+        `INSERT INTO workspace_members(workspace_id, user_id, role) VALUES ($1,$2,'owner')
+         ON CONFLICT (workspace_id, user_id) DO UPDATE SET role='owner'`,
+        [(rows[0] as any).id, (req as any).userId],
+      ).catch(() => [])
       return res.status(201).json(mapWorkspace(rows[0]))
     } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
   }
@@ -1385,9 +1394,19 @@ app.post('/api/auth/login', authLimiter, async (req,res)=> {
     if (!password || !(await verifyPassword(password, (user as any).passwordHash))) {
       return res.status(401).json({ error: 'Invalid credentials' })
     }
-    return res.json({ user, token: signToken(user.id) })
+    return res.json({ user: publicUser(user), token: signToken(user.id) })
   }
-  res.json({ user: user ?? { id:'u1', email, name:'Alex Rivera' }, token:'demo-token' })
+  if (user) return res.json({ user: publicUser(user), token: 'demo-token' })
+  // Unknown email: provision a DISTINCT identity instead of the old shared
+  // 'u1' stub. The stub made every demo-token login the same server-side
+  // user, so a second login in the same browser saw the first account's
+  // data. (Open registration already exists, so this adds no new threat.)
+  const local = String(email.split('@')[0] || 'user').replace(/[._-]+/g, ' ').trim() || 'user'
+  const freshName = local.split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+  const freshHash = password && password.length >= 8 ? await hashPassword(password) : null
+  const fresh = { id: uuid(), email, name: freshName, passwordHash: freshHash, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  db.users.push(fresh); saveDB()
+  res.json({ user: publicUser(fresh), token: freshHash ? signToken(fresh.id) : 'demo-token' })
 })
 app.post('/api/auth/register', authLimiter, async (req,res)=> {
   const parsed = z.object({ email: z.string().email(), name: z.string().min(1), password: z.string().min(8).optional() }).safeParse(req.body)
@@ -1587,5 +1606,19 @@ app.use((err:any,_req:any,res:any,_next:any)=> {
 import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 app.use(express.static(path.join(__dirname,'..','dist')))
+
+// Self-healing isolation (Postgres): workspaces created before owner
+// membership existed have zero member rows, which the legacy-open rule
+// exposes to every user. Grant each owner their membership once at boot so
+// pre-existing workspaces become private too. Idempotent + best-effort.
+if (usingPg) {
+  pgQuery(
+    `INSERT INTO workspace_members(workspace_id, user_id, role)
+     SELECT id, owner_id, 'owner' FROM workspaces WHERE owner_id IS NOT NULL
+     ON CONFLICT (workspace_id, user_id) DO NOTHING`,
+  ).then((r) => {
+    if (Array.isArray(r)) console.log(`[acl] backfilled owner membership`)
+  }).catch((e) => console.error('[acl] owner backfill skipped:', (e as Error)?.message || e))
+}
 
 app.listen(PORT, ()=> console.log(`API server listening on http://localhost:${PORT} (db: ${usingPg ? 'postgres' : 'json'})`))
