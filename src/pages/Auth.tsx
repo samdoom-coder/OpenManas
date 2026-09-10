@@ -21,7 +21,10 @@ export function Auth({ onNavigate }: { onNavigate: (r: 'dashboard') => void }) {
       if (!live) return
       setProbe(r ? 'up' : 'down')
       setDbKind(r?.db ?? null)
-      setBackendStatus(r ? 'server' : token ? 'server' : 'local', r?.db ?? null)
+      // Read the token live (not from render closure): a stored session must
+      // never be demoted to 'local' just because the backend is unreachable.
+      const hasSession = !!useAppStore.getState().token
+      setBackendStatus(r || hasSession ? 'server' : 'local', r?.db ?? null)
     })
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps

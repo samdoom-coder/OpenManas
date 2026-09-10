@@ -103,7 +103,10 @@ async function getWorkspaceRole(workspaceId: string | null | undefined, userId: 
   if (!ws) return { role: null, missing: true }
   const role = resolveWorkspaceRole(userId, ws.ownerId, null)
   if (role) return { role, missing: false }
-  return { role: 'editor', missing: false }
+  // Ownerless legacy rows stay open (see accessibleWorkspaceIds); owned
+  // workspaces are private to their owner on the JSON backend.
+  if (!ws.ownerId) return { role: 'editor', missing: false }
+  return { role: null, missing: false }
 }
 
 async function workspaceIdForPage(pageId: string | null | undefined): Promise<string | null> {
@@ -186,10 +189,20 @@ async function accessibleWorkspaceIds(userId: string): Promise<Set<string>> {
       return new Set([...owned, ...membered, ...open].map((r: any) => String(r.id ?? r.workspace_id)))
     } catch { return new Set() }
   }
-  // JSON fallback has no workspace_members table, so every workspace is
-  // legacy-open (visible to all authenticated callers). Real membership
-  // hiding applies on the Postgres path once members rows exist.
-  return new Set(db.workspaces.map((w: any) => String(w.id)))
+  // JSON fallback has no workspace_members table. Previously every workspace
+  // was visible to every authenticated caller, and every `demo-token` caller
+  // collapsed onto the shared 'u1' identity — so a second login in the same
+  // browser saw the first account's data. Now: workspaces with an owner are
+  // visible only to that owner (the client sends its identity via `x-user-id`
+  // for demo-token sessions); ownerless legacy rows stay visible to all so
+  // old single-user setups keep working. Real membership hiding applies on
+  // the Postgres path once member rows exist.
+  const all = db.workspaces as any[]
+  return new Set(
+    all
+      .filter((w: any) => !w.ownerId || String(w.ownerId) === String(userId))
+      .map((w: any) => String(w.id)),
+  )
 }
 
 // Enforce a page-action minimum inside a workspace. Sends 404 (unknown

@@ -26,9 +26,15 @@ export default function App() {
   const [joinToken, setJoinToken] = useState<string | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(()=> !localStorage.getItem('openmanas_onboarded'))
 
-  // Slice 2: with a stored session, pull shared state once on boot.
+  // Slice 2: with a stored session, validate it once on boot (expired JWTs
+  // sign out instead of silently serving another identity's data), then pull
+  // shared state. Offline → session is kept for later.
   useEffect(()=> {
-    if (useAppStore.getState().token) void useAppStore.getState().pullFromServer()
+    if (!useAppStore.getState().token) return
+    void (async () => {
+      try { await useAppStore.getState().validateSession() } catch { /* offline */ }
+      try { await useAppStore.getState().pullFromServer() } catch { /* pull reports via syncStatus */ }
+    })()
   }, [])
   // Slice 3: after sign-in, consume a pending invite link.
   useEffect(()=> {

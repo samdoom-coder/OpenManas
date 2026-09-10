@@ -6,7 +6,7 @@ import { getRecordTitle } from '@/lib/propertyDefs'
 import type { AppSettings, ThemeMode } from '@/lib/settings'
 import { loadSettings, saveSettings, applyAllSettings, applyThemeMode, resolveTheme, applyFont, applyCompact } from '@/lib/settings'
 import { storageService } from '@/lib/storageService'
-import { loadSession, saveSession, clearSession, signInRequest, signUpRequest } from '@/lib/api'
+import { loadSession, saveSession, clearSession, signInRequest, signUpRequest, fetchMe, ApiError } from '@/lib/api'
 import { migrateStateIds } from '@/lib/ids'
 import type { SyncStatus } from '@/lib/sync'
 import { buildNotificationsForEvent, isDoneTransition, loadAutomationRules, parseMentions, type AutomationEvent } from '@/lib/automation'
@@ -40,6 +40,38 @@ function pushDbSchema(dbId: string) {
   const d = useAppStore.getState().databases.find((x) => x.id === dbId)
   if (!d) return
   queuePush(`dbschema:${dbId}`, () => patchDatabase(dbId, { properties: d.properties, views: d.views }))
+}
+
+/**
+ * Account isolation: the local cache (openmanas_state_v1) holds one
+ * account's workspace at a time. When the signed-in identity changes we
+ * must drop the previous account's pages/blocks/etc. from memory BEFORE
+ * pulling — otherwise the new account briefly sees the old account's data
+ * and a fresh account's first-run upload would push the old data into it.
+ */
+function clearAccountContent() {
+  try { saveVersions({}) } catch { /* cache best-effort */ }
+  useAppStore.setState({
+    pages: [], blocks: [], databases: [], records: [],
+    comments: [], files: [], activities: [], notifications: [],
+    versions: {}, selectedPageId: null, selectedDatabaseId: null,
+  })
+}
+
+/** Local demo reset for sign-out: a fresh seed workspace, like first launch. */
+function resetToLocalDemo() {
+  const seed = generateSeed(defaultWorkspace.id, defaultUser.id)
+  try { saveVersions({}) } catch { /* cache best-effort */ }
+  useAppStore.setState({
+    workspace: { ...defaultWorkspace },
+    pages: (seed.pages as Page[]).map(normalizePageIcon),
+    blocks: seed.blocks as Block[],
+    databases: seed.databases as Database[],
+    records: seed.records as DatabaseRecord[],
+    comments: [], files: [], activities: [], notifications: [],
+    versions: {}, selectedPageId: (seed.pages as Page[])[1]?.id || null,
+    selectedDatabaseId: null,
+  })
 }
 
 /** Version history: event → snapshot (auto throttled, manual always). */
@@ -151,6 +183,12 @@ interface AppState {
   signIn: (email: string, password?: string) => Promise<void>
   signUp: (email: string, name: string, password?: string) => Promise<void>
   signOut: () => void
+  /**
+   * Boot-time session check: refreshes the profile when the backend is
+   * reachable, signs out on 401 with a real (expiring) token, and keeps the
+   * session untouched when offline. Returns 'valid' | 'signed-out' | 'offline' | 'local'.
+   */
+  validateSession: () => Promise<'valid' | 'signed-out' | 'offline' | 'local'>
   setBackendStatus: (mode: 'local' | 'server', db: string | null) => void
   // backend sync (slice 2: API is shared source of truth, localStorage is cache)
   syncStatus: SyncStatus
@@ -198,7 +236,6 @@ function normalizePageIcon(p: Page): Page {  if (p.iconType) return p
 }
 
 const STATE_KEY = 'openmanas_state_v1'
-const STATE_BACKUP_KEY = 'openmanas_state_backup'
 const LEGACY_STATE_KEY = 'nexus_state_v1' // pre-rebrand — read once, then dropped
 const IDS_FLAG = 'openmanas_ids_v2'
 
@@ -344,22 +381,64 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   signIn: async (email, password) => {
     const r = await signInRequest(email.trim(), password)
+    // New identity on this device? Drop the previous account's cached
+    // workspace first so it never flashes — and can never be uploaded
+    // into the new account by the first-run sync below.
+    if (get().user.id !== r.user.id) {
+      clearAccountContent()
+      set({ workspace: { ...defaultWorkspace } })
+    }
     saveSession({ user: r.user, token: r.token })
-    set(s => ({ user: { ...s.user, ...r.user, updatedAt: new Date().toISOString() }, token: r.token, backendMode: 'server' as const }))
+    // Replace (don't merge): stale local fields like a previous avatar or
+    // id must not linger on the new account.
+    set({ user: { ...defaultUser, ...r.user, updatedAt: new Date().toISOString() }, token: r.token, backendMode: 'server' as const })
     persist(get())
     void get().pullFromServer()
   },
   signUp: async (email, name, password) => {
     const r = await signUpRequest(email.trim(), name.trim(), password)
+    if (get().user.id !== r.user.id) {
+      clearAccountContent()
+      set({ workspace: { ...defaultWorkspace } })
+    }
     saveSession({ user: r.user, token: r.token })
-    set(s => ({ user: { ...s.user, ...r.user, updatedAt: new Date().toISOString() }, token: r.token, backendMode: 'server' as const }))
+    set({ user: { ...defaultUser, ...r.user, updatedAt: new Date().toISOString() }, token: r.token, backendMode: 'server' as const })
     persist(get())
     void get().pullFromServer()
   },
   signOut: () => {
     clearSession()
-    set({ user: { ...defaultUser }, token: null, backendMode: 'local' as const, backendDb: null, selectedPageId: null, selectedDatabaseId: null })
+    // Leave no trace of the signed-in account on this device: back to a
+    // fresh local demo instead of keeping the account's data visible.
+    resetToLocalDemo()
+    set({ user: { ...defaultUser }, token: null, backendMode: 'local' as const, backendDb: null })
     persist(get())
+  },
+  validateSession: async () => {
+    const token = get().token
+    if (!token) return 'local'
+    try {
+      const me = await fetchMe()
+      const u = (me as any)?.user ?? (me as any)
+      if (u?.id) {
+        set(s => ({ user: { ...s.user, ...u, updatedAt: new Date().toISOString() } }))
+        try {
+          const s = loadSession()
+          if (s) saveSession({ token: s.token, user: { id: u.id, email: u.email ?? s.user.email, name: u.name ?? s.user.name, avatar: u.avatar ?? s.user.avatar } })
+        } catch { /* keep in-memory user */ }
+        persist(get())
+      }
+      return 'valid'
+    } catch (e) {
+      // Expired/invalid JWT (real tokens expire after 30d): drop it so the
+      // app doesn't silently serve another identity's data. demo-token never
+      // expires server-side, so only evict it on an explicit 401 too.
+      if (e instanceof ApiError && e.status === 401) {
+        get().signOut()
+        return 'signed-out'
+      }
+      return 'offline' // unreachable — keep the session for later
+    }
   },
   setBackendStatus: (mode, db) => set({ backendMode: mode, backendDb: db }),
   syncStatus: 'local',
@@ -1007,7 +1086,11 @@ function persist(state: any) {
       themeMode: state.themeMode ?? state.settings?.themeMode,
     }
     localStorage.setItem(STATE_KEY, JSON.stringify(toSave))
-    localStorage.setItem(STATE_BACKUP_KEY, JSON.stringify({ ...toSave, at: new Date().toISOString()}))
+    // NOTE: no full-duplicate backup copy — it doubled localStorage usage
+    // toward the ~5MB quota and could crowd out the login session (reload
+    // then lost the login while cached data stayed). The session saver in
+    // lib/api.ts still evicts any stale 'openmanas_state_backup' left by
+    // older builds when quota pressure hits.
     try { localStorage.removeItem(LEGACY_STATE_KEY) } catch { /* noop */ }
     if (state.settings) saveSettings(state.settings)
   } catch {}

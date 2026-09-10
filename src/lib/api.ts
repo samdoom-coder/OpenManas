@@ -60,13 +60,29 @@ export function loadSession(): StoredSession | null {
   }
 }
 
-export function saveSession(s: StoredSession) {
+export function saveSession(s: StoredSession): boolean {
+  // Quota-safe: the workspace cache (openmanas_state_v1 + its backup copy)
+  // can fill the ~5MB localStorage budget on large workspaces. The session
+  // is tiny but critical (losing it logs the user out on reload while their
+  // cached data stays — exactly the "logged out but projects remain"
+  // symptom). So on quota failure, evict the expendable backup copy and
+  // legacy keys, then retry once instead of silently dropping the login.
   try {
     localStorage.setItem(SESSION_KEY, JSON.stringify(s))
     localStorage.setItem(TOKEN_KEY, s.token)
     localStorage.removeItem(LEGACY_SESSION_KEY)
     localStorage.removeItem(LEGACY_TOKEN_KEY)
-  } catch { /* quota/private mode */ }
+    return true
+  } catch {
+    try {
+      localStorage.removeItem('openmanas_state_backup')
+      localStorage.removeItem(LEGACY_SESSION_KEY)
+      localStorage.removeItem(LEGACY_TOKEN_KEY)
+      localStorage.setItem(SESSION_KEY, JSON.stringify(s))
+      localStorage.setItem(TOKEN_KEY, s.token)
+      return true
+    } catch { return false /* quota/private mode */ }
+  }
 }
 
 export function clearSession() {
@@ -91,12 +107,21 @@ export async function apiFetch<T = any>(path: string, init: RequestInit = {}, ti
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const token = getStoredToken()
+    // The JSON dev backend has no JWT user directory: `demo-token`
+    // callers are attributed via `x-user-id` (see server/auth.ts). Send our
+    // own user id so two demo-token accounts on one server stay isolated
+    // instead of both collapsing onto the shared 'u1' identity.
+    let demoUserId: string | null = null
+    if (token === 'demo-token') {
+      try { demoUserId = loadSession()?.user?.id ?? null } catch { demoUserId = null }
+    }
     const res = await fetch(`${apiBase()}${path}`, {
       ...init,
       signal: ctrl.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(demoUserId ? { 'x-user-id': demoUserId } : {}),
         ...(init.headers || {}),
       },
     })
@@ -131,6 +156,11 @@ export function signUpRequest(email: string, name: string, password?: string): P
     method: 'POST',
     body: JSON.stringify({ email, name, password }),
   })
+}
+
+/** Current profile for the stored session. Used for boot-time validation. */
+export function fetchMe(): Promise<AuthResponse> {
+  return apiFetch<AuthResponse>('/api/users/me')
 }
 
 /** Null when no backend is reachable (local demo mode). */
