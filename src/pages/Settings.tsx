@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useAppStore } from '@/stores/appStore'
 import { Card, CardContent, CardHeader } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/input'
 import { useToast } from '@/components/ui/toast'
 import { storageService } from '@/lib/storageService'
+import { AVATAR_ACCEPT, fileToAvatarDataUrl, getInitials } from '@/lib/avatar'
 import { loadAutomationRules, saveAutomationRules, type AutomationRule } from '@/lib/automation'
 import type { ThemeMode, DatabaseDefaultView } from '@/lib/settings'
 
@@ -66,6 +67,33 @@ export function Settings() {
   const [wsIcon, setWsIcon] = useState(workspace.icon ?? '')
   const [wsUrl, setWsUrl] = useState(settings.collaboration.wsUrl)
   const [rules, setRules] = useState<AutomationRule[]>(() => loadAutomationRules())
+  const [avatarBusy, setAvatarBusy] = useState(false)
+  const [avatarError, setAvatarError] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement | null>(null)
+
+  const onAvatarFile = async (f: File | undefined) => {
+    if (!f) return
+    setAvatarBusy(true)
+    setAvatarError(null)
+    try {
+      const dataUrl = await fileToAvatarDataUrl(f)
+      updateUser({ avatar: dataUrl })
+      push({ title: 'Profile picture updated', desc: 'Saved on this device and synced when signed in.' })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Could not read that image.'
+      setAvatarError(msg)
+      push({ title: 'Avatar upload failed', desc: msg })
+    } finally {
+      setAvatarBusy(false)
+      try { if (fileRef.current) fileRef.current.value = '' } catch { /* noop */ }
+    }
+  }
+
+  const removeAvatar = () => {
+    updateUser({ avatar: '' })
+    setAvatarError(null)
+    push({ title: 'Profile picture removed' })
+  }
 
   const toggleRule = (id: AutomationRule['id']) => {
     setRules((prev) => {
@@ -158,14 +186,37 @@ export function Settings() {
               <CardHeader><h3 className="font-semibold">Account</h3></CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center gap-4">
-                  <img src={`https://i.pravatar.cc/100?u=${user.id}`} className="w-16 h-16 rounded-2xl" alt="avatar" />
+                  {user.avatar ? (
+                    <img src={user.avatar} className="w-16 h-16 rounded-2xl object-cover border" alt="Profile picture" />
+                  ) : (
+                    <span className="w-16 h-16 rounded-2xl bg-violet-500/15 grid place-items-center font-semibold text-violet-600 text-xl shrink-0" aria-label="Default avatar">
+                      {getInitials(user.name, user.email)}
+                    </span>
+                  )}
                   <div className="min-w-0">
                     <div className="font-medium truncate">{user.name}</div>
                     <div className="text-sm text-muted-foreground truncate">{user.email}</div>
                     <div className="text-[11px] text-muted-foreground mt-1">ID {user.id} · demo auth stub (bcrypt/JWT in Phase 1)</div>
                   </div>
-                  <Button variant="outline" size="sm" className="ml-auto" onClick={() => push({ title: 'Avatar upload coming soon', desc: 'Uses Storage provider when wired.' })}>Change avatar</Button>
+                  <div className="ml-auto flex items-center gap-2">
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept={AVATAR_ACCEPT}
+                      className="hidden"
+                      aria-label="Choose profile picture"
+                      onChange={(e) => void onAvatarFile(e.target.files?.[0])}
+                    />
+                    <Button variant="outline" size="sm" disabled={avatarBusy} onClick={() => fileRef.current?.click()}>
+                      {avatarBusy ? 'Uploading…' : user.avatar ? 'Change picture' : 'Upload picture'}
+                    </Button>
+                    {user.avatar ? (
+                      <Button variant="ghost" size="sm" disabled={avatarBusy} onClick={removeAvatar}>Remove</Button>
+                    ) : null}
+                  </div>
                 </div>
+                {avatarError ? <div className="text-xs text-destructive" role="alert">{avatarError}</div> : null}
+                <div className="text-[11px] text-muted-foreground">PNG, JPEG or WebP up to 5MB — resized to 256px so it works offline.</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div><label className="text-xs font-medium" htmlFor="set-name">Name</label><Input id="set-name" value={name} onChange={e => setName(e.target.value)} className="mt-1" /></div>
                   <div><label className="text-xs font-medium" htmlFor="set-email">Email</label><Input id="set-email" value={email} onChange={e => setEmail(e.target.value)} className="mt-1" /></div>
@@ -193,7 +244,11 @@ export function Settings() {
                 <div className="pt-2 border-t">
                   <div className="text-xs font-medium mb-2">Members (stub for permission enforcement)</div>
                   <div className="flex items-center gap-3 p-2 rounded-xl border">
-                    <img src={`https://i.pravatar.cc/40?u=${user.id}`} className="w-8 h-8 rounded-lg" alt="" />
+                    {user.avatar ? (
+                      <img src={user.avatar} className="w-8 h-8 rounded-lg object-cover" alt="" />
+                    ) : (
+                      <img src={`https://i.pravatar.cc/40?u=${user.id}`} className="w-8 h-8 rounded-lg" alt="" />
+                    )}
                     <div className="flex-1 min-w-0"><div className="text-sm font-medium truncate">{user.name}</div><div className="text-xs text-muted-foreground truncate">{user.email}</div></div>
                     <Badge>owner</Badge>
                   </div>

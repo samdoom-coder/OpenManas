@@ -20,7 +20,7 @@ import {
   postRecord, patchRecord, deleteRecordRemote,
   postComment, patchCommentRemote, deleteCommentRemote,
   postActivity, postNotification, patchNotificationRemote,
-  postFileMeta, deleteFileRemote, fetchFiles,
+  postFileMeta, deleteFileRemote, fetchFiles, patchProfile,
   fetchPageVersions, postPageVersion, fetchVersionsForPages,
 } from '@/lib/sync'
 
@@ -324,6 +324,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateUser: (patch) => {
     set(s => ({ user: { ...s.user, ...patch, updatedAt: new Date().toISOString() } }))
     persist(get())
+    // Keep the persisted login session in sync so a reload keeps the avatar.
+    try {
+      const s = loadSession()
+      if (s) {
+        const u = get().user
+        saveSession({ token: s.token, user: { id: u.id, email: u.email, name: u.name, avatar: u.avatar } })
+      }
+    } catch { /* private mode — local state still updated */ }
+    // Push profile (name/avatar) to the backend when logged in (debounced).
+    if (serverMode()) {
+      const u = get().user
+      queuePush('profile', () => patchProfile({ name: u.name, email: u.email, avatar: u.avatar ?? '' }))
+    }
   },
   updateWorkspace: (patch) => {
     set(s => ({ workspace: { ...s.workspace, ...patch, updatedAt: new Date().toISOString() } }))

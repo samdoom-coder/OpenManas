@@ -138,8 +138,12 @@ function AccountRow({ onNavigate }: { onNavigate?: (r: string) => void }) {
       title={loggedIn ? 'Account' : 'Sign in'}
       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl hover:bg-accent text-left"
     >
-      <span className="w-8 h-8 rounded-xl bg-violet-500/15 grid place-items-center font-semibold text-violet-600 shrink-0">
-        {(user.name || user.email || '?').slice(0, 1).toUpperCase()}
+      <span className="w-8 h-8 rounded-xl bg-violet-500/15 grid place-items-center font-semibold text-violet-600 shrink-0 overflow-hidden">
+        {user.avatar ? (
+          <img src={user.avatar} alt="" className="w-8 h-8 rounded-xl object-cover" />
+        ) : (
+          (user.name || user.email || '?').slice(0, 1).toUpperCase()
+        )}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium truncate">{loggedIn ? user.name : 'Local demo'}</span>

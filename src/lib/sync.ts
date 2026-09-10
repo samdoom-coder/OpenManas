@@ -255,6 +255,16 @@ export async function fetchVersionsForPages(pageIds: string[]): Promise<Record<s
   return out
 }
 
+// --- PUSH: profile (Settings → Account avatar/name/email) ---
+export interface ProfilePatch {
+  name?: string
+  email?: string
+  avatar?: string
+}
+export const patchProfile = (patch: ProfilePatch) =>
+  apiFetch('/api/users/me', { method: 'PATCH', body: JSON.stringify(patch) })
+export const fetchProfile = () => apiFetch<{ user: any }>('/api/users/me')
+
 // --- Workspace members (per-user ACL) ---
 export interface WorkspaceMemberDTO {
   id: string

@@ -8,7 +8,7 @@ import { openShare } from '@/components/features/ShareDialog'
 import { openNotifications } from '@/components/features/NotificationCenter'
 
 export function Topbar() {
-  const { pages, selectedPageId, selectedDatabaseId, databases, setCommandOpen, setSearchOpen, notifications } = useAppStore()
+  const { pages, selectedPageId, selectedDatabaseId, databases, setCommandOpen, setSearchOpen, notifications, user } = useAppStore()
   const page = pages.find(p=> p.id===selectedPageId)
   const db = databases.find(d=> d.id===selectedDatabaseId)
 
@@ -52,7 +52,11 @@ export function Topbar() {
           <Button variant="ghost" size="icon" title="Notifications" aria-label="Open notifications" onClick={() => openNotifications()}><Bell size={16}/></Button>
           {notifications.filter(n=>!n.read).length>0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[10px] grid place-items-center rounded-full pointer-events-none">{notifications.filter(n=>!n.read).length}</span>}
         </div>
-        <img src={`https://i.pravatar.cc/100?img=32`} alt="avatar" className="w-8 h-8 rounded-xl border object-cover" />
+        {user?.avatar ? (
+          <img src={user.avatar} alt="Profile picture" className="w-8 h-8 rounded-xl border object-cover" />
+        ) : (
+          <img src={`https://i.pravatar.cc/100?img=32`} alt="avatar" className="w-8 h-8 rounded-xl border object-cover" />
+        )}
       </div>
     </div>
   )

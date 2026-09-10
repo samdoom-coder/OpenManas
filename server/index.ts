@@ -1396,6 +1396,89 @@ app.post('/api/auth/register', authLimiter, async (req,res)=> {
   res.status(201).json({ user: { id: user.id, email: user.email, name: user.name }, token: hash ? signToken(user.id) : 'demo-token' })
 })
 
+// Profile — the Settings → Account avatar upload writes here via
+// sync.patchProfile(). Avatars are resized data: URLs (<=256px) from the
+// client, so the body stays small (express.json limit is 10mb).
+const profilePatchSchema = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
+  email: z.string().trim().email().max(254).optional(),
+  avatar: z.string().max(2_000_000).optional(),
+}).refine((v) => v.name !== undefined || v.email !== undefined || v.avatar !== undefined, {
+  message: 'Nothing to update',
+})
+
+function publicUser(u: any) {
+  if (!u) return u
+  const { passwordHash, password_hash, ...rest } = u as any
+  return rest
+}
+
+function validAvatarValue(v: unknown): boolean {
+  if (typeof v !== 'string') return false
+  if (v === '') return true // clearing the picture
+  return v.startsWith('data:image/')
+}
+
+app.get('/api/users/me', authStub, async (req:any,res)=> {
+  const userId = (req as any).userId
+  if (usingPg) {
+    try {
+      const rows = await pgQuery('SELECT * FROM users WHERE id=$1', [userId])
+      if (!rows[0]) return res.status(404).json({ error: 'Not found' })
+      return res.json({ user: mapUser(rows[0]) })
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  const user = db.users.find((x: any) => x.id === userId)
+  if (!user) return res.status(404).json({ error: 'Not found' })
+  res.json({ user: publicUser(user) })
+})
+
+app.patch('/api/users/me', authStub, async (req:any,res)=> {
+  const parsed = profilePatchSchema.safeParse(req.body ?? {})
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
+  const { name, email, avatar } = parsed.data
+  if (avatar !== undefined && !validAvatarValue(avatar)) {
+    return res.status(400).json({ error: 'Invalid avatar — expected a data:image/... URL' })
+  }
+  const userId = (req as any).userId
+  if (usingPg) {
+    try {
+      if (email !== undefined) {
+        const existing = await pgQuery('SELECT id FROM users WHERE email=$1 AND id<>$2', [email.toLowerCase(), userId])
+        if (existing[0]) return res.status(409).json({ error: 'Email already registered' })
+      }
+      const sets: string[] = []
+      const vals: any[] = []
+      let i = 1
+      if (name !== undefined) { sets.push(`name=$${i++}`); vals.push(name) }
+      if (email !== undefined) { sets.push(`email=$${i++}`); vals.push(email.toLowerCase()) }
+      if (avatar !== undefined) { sets.push(`avatar=$${i++}`); vals.push(avatar) }
+      sets.push(`updated_at=NOW()`)
+      vals.push(userId)
+      const rows = await pgQuery(`UPDATE users SET ${sets.join(', ')} WHERE id=$${i} RETURNING *`, vals)
+      if (!rows[0]) return res.status(404).json({ error: 'Not found' })
+      return res.json({ user: mapUser(rows[0]) })
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  let user = db.users.find((x: any) => x.id === userId)
+  if (!user) {
+    // demo-token stub with no persisted row yet: create it so the avatar sticks
+    user = { id: userId, email: 'alex@openmanas.app', name: 'Alex Rivera', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+    db.users.push(user)
+  }
+  if (email !== undefined) {
+    if (db.users.some((x: any) => x.email === email && x.id !== userId)) {
+      return res.status(409).json({ error: 'Email already registered' })
+    }
+    user.email = email
+  }
+  if (name !== undefined) user.name = name
+  if (avatar !== undefined) user.avatar = avatar
+  user.updatedAt = new Date().toISOString()
+  saveDB()
+  res.json({ user: publicUser(user) })
+})
+
 // Notifications — per-user inbox fed by the automation bus (slice 4).
 // userId is always the caller (no spoofing); automation targets resolve
 // client-side to the actor for v1, with link carrying the shared target so
