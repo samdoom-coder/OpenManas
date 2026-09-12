@@ -252,12 +252,57 @@ function normalizePageIcon(p: Page): Page {  if (p.iconType) return p
 const STATE_KEY = 'openmanas_state_v1'
 const LEGACY_STATE_KEY = 'nexus_state_v1' // pre-rebrand — read once, then dropped
 const IDS_FLAG = 'openmanas_ids_v2'
+const SELECTED_KEY = 'openmanas_selected_v1' // persisted open page/database across reloads
+
+function readSelected(): { pageId: string | null; databaseId: string | null } {
+  try {
+    const raw = localStorage.getItem(SELECTED_KEY)
+    if (!raw) return { pageId: null, databaseId: null }
+    const p = JSON.parse(raw)
+    return {
+      pageId: typeof p?.pageId === 'string' ? p.pageId : null,
+      databaseId: typeof p?.databaseId === 'string' ? p.databaseId : null,
+    }
+  } catch {
+    return { pageId: null, databaseId: null }
+  }
+}
+
+function writeSelected(pageId: string | null, databaseId: string | null) {
+  try {
+    localStorage.setItem(SELECTED_KEY, JSON.stringify({ pageId, databaseId }))
+  } catch { /* private mode — selection just won't survive reload */ }
+}
+
+/**
+ * Coerce a parsed localStorage blob into the shape the UI expects. A cache
+ * written by an older build (or a partially-upgraded one) can otherwise boot
+ * with `pages: undefined` / `user: null` and crash the first render into a
+ * blank page. Arrays are coerced, null entries dropped, user/workspace get
+ * safe fallbacks. Exported for tests.
+ */
+export function sanitizeLoadedState<T extends Record<string, any>>(parsed: T): T {
+  const asArray = (v: unknown): any[] => (Array.isArray(v) ? v.filter((e) => e != null) : [])
+  const out: Record<string, any> = { ...(parsed as object) }
+  for (const k of ['pages', 'blocks', 'databases', 'records', 'comments', 'files', 'activities', 'notifications']) {
+    out[k] = asArray((parsed as any)?.[k])
+  }
+  const u = (parsed as any)?.user
+  out.user = u && typeof u === 'object'
+    ? { ...defaultUser, ...u, name: typeof u.name === 'string' && u.name ? u.name : defaultUser.name }
+    : { ...defaultUser }
+  const w = (parsed as any)?.workspace
+  out.workspace = w && typeof w === 'object'
+    ? { ...defaultWorkspace, ...w, name: typeof w.name === 'string' && w.name ? w.name : defaultWorkspace.name }
+    : { ...defaultWorkspace }
+  return out as T
+}
 
 function loadOrSeed() {
   const saved = localStorage.getItem(STATE_KEY) ?? localStorage.getItem(LEGACY_STATE_KEY)
   if (saved) {
     try {
-      const parsed = JSON.parse(saved)
+      const parsed = sanitizeLoadedState(JSON.parse(saved))
       if (parsed?.pages) parsed.pages = (parsed.pages as Page[]).map(normalizePageIcon)
       return ensureUuidIds(parsed)
     } catch {}
@@ -283,6 +328,19 @@ function ensureUuidIds<T>(state: T): T {
 }
 
 const seedData = loadOrSeed()
+// Restore the open page/database across reloads (validated — a deleted or
+// trashed page falls back to the default instead of a dead selection).
+const storedSelected = readSelected()
+const restoredPageId = storedSelected.pageId &&
+  (seedData.pages as Page[]).some((p) => p && p.id === storedSelected.pageId && !p.isTrashed)
+  ? storedSelected.pageId
+  : null
+const restoredDatabaseId = !restoredPageId && storedSelected.databaseId &&
+  (seedData.databases as Database[]).some((d) => d && d.id === storedSelected.databaseId)
+  ? storedSelected.databaseId
+  : null
+const initialSelectedPageId = restoredPageId ?? (seedData.pages as Page[])[1]?.id ?? null
+const initialSelectedDatabaseId = restoredDatabaseId
 const initialSettings = loadSettings()
 // restore persisted API session (slice 1); data sync lands in slice 2
 const storedSession = (() => { try { return loadSession() } catch { return null } })()
@@ -329,8 +387,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   comments: ((seedData as any).comments as Comment[] | undefined) ?? [] as Comment[],
   files: ((seedData as any).files as FileAsset[] | undefined) ?? [] as FileAsset[],
   versions: loadVersions(),
-  selectedPageId: (seedData.pages as Page[])[1]?.id || null,
-  selectedDatabaseId: null,
+  selectedPageId: initialSelectedPageId,
+  selectedDatabaseId: initialSelectedDatabaseId,
   sidebarCollapsed: initialSettings.sidebarDefault === 'collapsed',
   commandOpen: false,
   searchOpen: false,
@@ -535,6 +593,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         const ids = (pulled.pages as Page[]).map((p) => p.id)
         remoteVersions = await fetchVersionsForPages(ids)
       } catch { remoteVersions = null }
+      // Keep the user where they were when the pulled data still has the
+      // open page/database (e.g. a plain reload) instead of kicking to the
+      // dashboard. A deleted/trashed page falls back to no selection.
+      const curSel = get()
+      const keepPageId = curSel.selectedPageId &&
+        (pulled.pages as Page[]).some((p) => p && p.id === curSel.selectedPageId && !p.isTrashed)
+        ? curSel.selectedPageId
+        : null
+      const keepDatabaseId = !keepPageId && curSel.selectedDatabaseId &&
+        (pulled.databases as Database[]).some((d) => d && d.id === curSel.selectedDatabaseId)
+        ? curSel.selectedDatabaseId
+        : null
       set({
         workspace: { ...get().workspace, id: ws.id, name: ws.name ?? get().workspace.name, icon: ws.icon ?? get().workspace.icon },
         pages: (pulled.pages as Page[]).map(normalizePageIcon),
@@ -546,8 +616,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         files: (pulled as any).files ?? get().files,
         notifications: (pulled as any).notifications?.length ? (pulled as any).notifications : get().notifications,
         versions: remoteVersions && Object.keys(remoteVersions).length ? remoteVersions : get().versions,
-        selectedPageId: null,
-        selectedDatabaseId: null,
+        selectedPageId: keepPageId,
+        selectedDatabaseId: keepDatabaseId,
         syncStatus: 'synced',
       })
       try {
@@ -1154,6 +1224,9 @@ let saveTimer:any
 useAppStore.subscribe((state)=>{
   clearTimeout(saveTimer)
   saveTimer = setTimeout(()=> persist(state), 400)
+  // Selection is tiny — write it synchronously on every change so a reload
+  // restores the open page/database (persist() above only covers content).
+  writeSelected(state.selectedPageId ?? null, state.selectedDatabaseId ?? null)
 })
 
 /**

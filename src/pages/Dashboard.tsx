@@ -7,8 +7,13 @@ import { PageIcon, PageIconInline } from '@/components/ui/pageIcon'
 
 export function Dashboard({ onNavigate }: { onNavigate?: (r:string)=>void }) {
   const { pages, databases, records, activities, createPage, setSelectedPage, setSelectedDatabase, user } = useAppStore()
-  const recent = [...pages].filter(p=>!p.isTrashed).sort((a,b)=> new Date(b.updatedAt).getTime()-new Date(a.updatedAt).getTime()).slice(0,6)
-  const favs = pages.filter(p=> p.isFavorite).slice(0,4)
+  const safePages = Array.isArray(pages) ? pages.filter(Boolean) : []
+  const safeDatabases = Array.isArray(databases) ? databases.filter(Boolean) : []
+  const safeRecords = Array.isArray(records) ? records.filter(Boolean) : []
+  const safeActivities = Array.isArray(activities) ? activities.filter(Boolean) : []
+  const firstName = (user?.name || '').trim().split(' ')[0] || 'there'
+  const recent = [...safePages].filter(p=>!p.isTrashed).sort((a,b)=> new Date(b.updatedAt).getTime()-new Date(a.updatedAt).getTime()).slice(0,6)
+  const favs = safePages.filter(p=> p.isFavorite).slice(0,4)
   const hour = new Date().getHours()
   const greeting = hour <12 ? 'Good morning' : hour<18 ? 'Good afternoon' : 'Good evening'
 
@@ -18,8 +23,8 @@ export function Dashboard({ onNavigate }: { onNavigate?: (r:string)=>void }) {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.15),transparent_50%)]" />
         <div className="relative">
           <div className="text-sm opacity-80">{new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric'})}</div>
-          <h1 className="text-3xl font-bold mt-1">{greeting}, {user.name.split(' ')[0]}.</h1>
-          <p className="opacity-80 mt-2 max-w-[600px]">Your workspace is a calm, intelligent surface for thinking. {pages.length} pages • {databases.length} databases • {records.length} records.</p>
+          <h1 className="text-3xl font-bold mt-1">{greeting}, {firstName}.</h1>
+          <p className="opacity-80 mt-2 max-w-[600px]">Your workspace is a calm, intelligent surface for thinking. {safePages.length} pages • {safeDatabases.length} databases • {safeRecords.length} records.</p>
           <div className="flex flex-wrap gap-2 mt-5">
             <Button onClick={()=> createPage('Untitled')} className="bg-white text-violet-700 hover:bg-white/90 rounded-xl"><Plus size={16} className="mr-1"/> New Page</Button>
             <Button onClick={()=> useAppStore.getState().createDatabase('New Database')} variant="secondary" className="bg-white/15 text-white hover:bg-white/20 border-white/20 rounded-xl border"> <Database size={16} className="mr-1"/> New Database</Button>
@@ -30,9 +35,9 @@ export function Dashboard({ onNavigate }: { onNavigate?: (r:string)=>void }) {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: 'Pages', value: pages.length, icon: FileText, change: '+3 this week' },
-          { label: 'Tasks', value: records.length, icon: Activity, change: '5 due soon' },
-          { label: 'Databases', value: databases.length, icon: Database, change: 'All synced' },
+          { label: 'Pages', value: safePages.length, icon: FileText, change: '+3 this week' },
+          { label: 'Tasks', value: safeRecords.length, icon: Activity, change: '5 due soon' },
+          { label: 'Databases', value: safeDatabases.length, icon: Database, change: 'All synced' },
           { label: 'Favorites', value: favs.length, icon: Star, change: 'Quick access' },
         ].map(s=> (
           <Card key={s.label} className="rounded-2xl">
@@ -80,12 +85,12 @@ export function Dashboard({ onNavigate }: { onNavigate?: (r:string)=>void }) {
           <Card className="rounded-2xl">
             <CardHeader><h3 className="font-semibold flex items-center gap-2"><Database size={16}/> Databases</h3></CardHeader>
             <CardContent className="space-y-2">
-              {databases.map(db=> (
+              {safeDatabases.map(db=> (
                 <button key={db.id} onClick={()=> setSelectedDatabase(db.id)} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-accent border text-left">
                   <span className="w-8 h-8 rounded-lg bg-violet-500/10 grid place-items-center">▦</span>
                   <span className="flex-1">
                     <div className="text-sm font-medium">{db.name}</div>
-                    <div className="text-xs text-muted-foreground">{records.filter(r=>r.databaseId===db.id).length} records</div>
+                    <div className="text-xs text-muted-foreground">{safeRecords.filter(r=>r.databaseId===db.id).length} records</div>
                   </span>
                 </button>
               ))}
@@ -100,7 +105,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (r:string)=>void }) {
           <CardContent className="grid grid-cols-2 gap-2">
             {[
               { label: 'New Page', icon: FileText, action: ()=> createPage('Untitled')},
-              { label: 'New Task', icon: Plus, action: ()=> setSelectedDatabase(databases[0]?.id)},
+              {label: 'New Task', icon: Plus, action: ()=> { if (safeDatabases[0]) setSelectedDatabase(safeDatabases[0].id) }},
               { label: 'Search', icon: Clock, action: ()=> useAppStore.getState().setSearchOpen(true)},
               { label: 'Ask AI', icon: Sparkles, action: ()=> {}},
             ].map(a=> (
@@ -114,11 +119,11 @@ export function Dashboard({ onNavigate }: { onNavigate?: (r:string)=>void }) {
         <Card className="rounded-2xl lg:col-span-2">
           <CardHeader><h3 className="font-semibold flex items-center gap-2"><Activity size={16}/> Activity</h3></CardHeader>
           <CardContent className="space-y-3">
-            {activities.slice(0,6).map(act=> (
+            {safeActivities.slice(0,6).map(act=> (
               <div key={act.id} className="flex items-center gap-3 text-sm">
                 <img src={`https://i.pravatar.cc/100?img=12`} className="w-7 h-7 rounded-full" alt=""/>
-                <span className="flex-1"><span className="font-medium">{user.name}</span> <span className="text-muted-foreground">{act.action.replace('_',' ')}</span> <span className="font-medium">{act.targetType}</span></span>
-                <span className="text-xs text-muted-foreground">{formatRelative(act.createdAt)}</span>
+                <span className="flex-1"><span className="font-medium">{user?.name || 'Someone'}</span> <span className="text-muted-foreground">{String(act.action || 'updated').replace('_',' ')}</span> <span className="font-medium">{act.targetType || ''}</span></span>
+                <span className="text-xs text-muted-foreground">{act.createdAt ? formatRelative(act.createdAt) : ''}</span>
               </div>
             ))}
           </CardContent>

@@ -8,9 +8,11 @@ import { PageIconInline } from '@/components/ui/pageIcon'
 export function Sidebar({ onNavigate, activeRoute }: { onNavigate?: (r:string)=>void, activeRoute?:string }) {
   const { pages, databases, selectedPageId, selectedDatabaseId, setSelectedPage, setSelectedDatabase, createPage, workspace, sidebarCollapsed, toggleSidebar, user } = useAppStore()
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ Projects: true, Knowledge: true })
-  const favorites = pages.filter(p=>p.isFavorite && !p.isTrashed)
-  const favDatabases = databases.filter(d=> d.isFavorite)
-  const recent = [...pages].filter(p=>!p.isTrashed).sort((a,b)=> new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0,5)
+  const safePages = Array.isArray(pages) ? pages.filter(Boolean) : []
+  const safeDatabases = Array.isArray(databases) ? databases.filter(Boolean) : []
+  const favorites = safePages.filter(p=>p.isFavorite && !p.isTrashed)
+  const favDatabases = safeDatabases.filter(d=> d.isFavorite)
+  const recent = [...safePages].filter(p=>!p.isTrashed).sort((a,b)=> new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0,5)
 
   if (sidebarCollapsed) {
     return (
@@ -24,7 +26,7 @@ export function Sidebar({ onNavigate, activeRoute }: { onNavigate?: (r:string)=>
     )
   }
 
-  const tree = buildTree(pages)
+  const tree = buildTree(safePages)
 
   return (
     <div className="w-[280px] border-r bg-card flex flex-col shrink-0 overflow-hidden">
@@ -37,8 +39,8 @@ export function Sidebar({ onNavigate, activeRoute }: { onNavigate?: (r:string)=>
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-semibold text-sm truncate">{workspace.name}</div>
-          <div className="text-xs text-muted-foreground truncate">{user.name} • {pages.length} pages</div>
+          <div className="font-semibold text-sm truncate">{workspace?.name || 'Workspace'}</div>
+          <div className="text-xs text-muted-foreground truncate">{user?.name || 'Local'} • {safePages.length} pages</div>
         </div>
         <button onClick={toggleSidebar} className="p-1.5 rounded-lg hover:bg-accent"><MoreHorizontal size={16}/></button>
       </div>
@@ -74,7 +76,7 @@ export function Sidebar({ onNavigate, activeRoute }: { onNavigate?: (r:string)=>
             <button onClick={()=> useAppStore.getState().createDatabase('New Database')} className="p-1 rounded-lg hover:bg-accent"><Plus size={14}/></button>
           </div>
           <div className="space-y-0.5">
-            {databases.map(db=> (
+            {safeDatabases.map(db=> (
               <button key={db.id} onClick={()=> setSelectedDatabase(db.id)} className={cn("w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-sm hover:bg-accent", selectedDatabaseId===db.id ? "bg-accent font-medium" : "text-muted-foreground")}>
                 <span className="w-5 text-center shrink-0">{db.icon || <Database size={14} className="mx-auto"/>}</span>
                 <span className="truncate flex-1 text-left">{db.name}</span>
@@ -146,16 +148,16 @@ function AccountRow({ onNavigate }: { onNavigate?: (r: string) => void }) {
       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl hover:bg-accent text-left"
     >
       <span className="w-8 h-8 rounded-xl bg-violet-500/15 grid place-items-center font-semibold text-violet-600 shrink-0 overflow-hidden">
-        {user.avatar ? (
+        {user?.avatar ? (
           <img src={user.avatar} alt="" className="w-8 h-8 rounded-xl object-cover" />
         ) : (
-          (user.name || user.email || '?').slice(0, 1).toUpperCase()
+          (user?.name || user?.email || '?').slice(0, 1).toUpperCase()
         )}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium truncate">{loggedIn ? user.name : 'Local demo'}</span>
+        <span className="block text-sm font-medium truncate">{loggedIn ? (user?.name || 'Account') : 'Local demo'}</span>
         <span className="block text-[11px] text-muted-foreground truncate">
-          {loggedIn ? `${user.email} • server` : backendMode === 'server' ? 'Server session' : 'Sign in to sync →'}
+          {loggedIn ? `${user?.email || ''} • server` : backendMode === 'server' ? 'Server session' : 'Sign in to sync →'}
         </span>
       </span>
     </button>
@@ -164,7 +166,8 @@ function AccountRow({ onNavigate }: { onNavigate?: (r: string) => void }) {
 
 function PageTreeNode({ node, tree, depth }: { node: any, tree: any[], depth: number }) {
   const { selectedPageId, setSelectedPage, createPage, pages } = useAppStore()
-  const children = pages.filter(p=> p.parentId===node.id && !p.isTrashed)
+  const safePages = Array.isArray(pages) ? pages : []
+  const children = safePages.filter(p=> p && p.parentId===node.id && !p.isTrashed)
   const [open, setOpen] = useState(true)
   const isActive = selectedPageId===node.id
   return (

@@ -18,6 +18,7 @@ import { templatesSeed } from '@/data/seed'
 import { Onboarding } from '@/components/features/Onboarding'
 import { KnowledgeGraphView, buildGraph } from '@/components/features/KnowledgeGraph'
 import { FileManager } from '@/components/features/FileManager'
+import { ErrorBoundary } from '@/components/ui/errorBoundary'
 
 export default function App() {
   const { selectedPageId, selectedDatabaseId, setSelectedPage, setSelectedDatabase } = useAppStore()
@@ -101,6 +102,7 @@ export default function App() {
   }, [])
 
   return (
+    <ErrorBoundary>
     <div className="min-h-screen bg-background text-foreground flex">
       <Sidebar onNavigate={navigate} activeRoute={route} />
       <div className="flex-1 min-w-0 flex flex-col h-screen overflow-hidden">
@@ -134,6 +136,7 @@ export default function App() {
 
       <BottomNav route={route} setRoute={setRoute} />
     </div>
+    </ErrorBoundary>
   )
 }
 
