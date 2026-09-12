@@ -8,6 +8,8 @@ import { fetchSharedBlocks, fetchSharedPage, resolveShareToken } from '@/lib/syn
 import { stripHtml } from '@/lib/versions'
 import type { Block, Page } from '@/lib/types'
 import { Button } from '@/components/ui/button'
+import { BookmarkCard } from '@/components/editor/BookmarkCard'
+import { fetchLinkPreview } from '@/lib/linkPreview'
 
 export function SharedPage({ token, onSignIn }: { token: string; onSignIn: () => void }) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -133,7 +135,6 @@ function SharedBlock({ block }: { block: Block }) {
     case 'audio':
       return block.content ? <audio src={block.content} controls className="w-full my-2" /> : null
     case 'file':
-    case 'bookmark':
       return block.content ? (
         <a href={block.content} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 rounded-xl border bg-card my-2 hover:shadow-sm">
           <span className="w-9 h-9 rounded-lg bg-violet-500/10 grid place-items-center">📎</span>
@@ -141,7 +142,33 @@ function SharedBlock({ block }: { block: Block }) {
           <span className="text-xs text-muted-foreground">Open ↗</span>
         </a>
       ) : null
+    case 'bookmark':
+      return block.content ? <SharedBookmark block={block} /> : null
     default:
       return text ? <p className="py-0.5 leading-relaxed" dangerouslySetInnerHTML={html(block.content)} /> : null
   }
+}
+
+function SharedBookmark({ block }: { block: Block }) {
+  const url = (block.content || '').trim()
+  const p = (block.properties || {}) as Record<string, unknown>
+  const [live, setLive] = useState<{ title?: string; description?: string; image?: string; favicon?: string } | null>(null)
+  const needsFetch = url && (!p.title || !p.image)
+  useEffect(() => {
+    let on = true
+    if (!needsFetch) return
+    fetchLinkPreview(url).then((m) => { if (on) setLive(m) }).catch(() => {})
+    return () => { on = false }
+  }, [url]) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="my-2">
+      <BookmarkCard
+        url={url}
+        title={String((p.title as string) || live?.title || '')}
+        description={String((p.description as string) || live?.description || '')}
+        image={String((p.image as string) || live?.image || '')}
+        favicon={String((p.favicon as string) || live?.favicon || '')}
+      />
+    </div>
+  )
 }

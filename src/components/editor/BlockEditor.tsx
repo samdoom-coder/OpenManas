@@ -20,6 +20,7 @@ import { fontFamilyCSS } from '@/lib/fonts'
 import { resolveEmbedFilter, resolveEmbedSort, hasEmbedOverrides } from '@/lib/databaseEngine'
 import { acceptMatches } from '@/lib/fileRefs'
 import { previewUrl, kindOf, MAX_FILE_SIZE } from '@/components/features/FileManager'
+import { BookmarkBlockView } from './BookmarkCard'
 
 export function BlockEditor({ pageId }: { pageId: string }) {
   const { blocks, addBlock, updateBlock, deleteBlock, moveBlock, duplicateBlock } = useAppStore()
@@ -826,17 +827,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         {renderDragMenu()}
         {renderCommentHover()}
         <div className="w-full min-w-0">
-          {block.content ? (
-            <a href={block.content} target="_blank" rel="noreferrer" className="flex gap-3 p-3 rounded-xl border bg-card hover:bg-accent">
-              <div className="w-10 h-10 rounded-lg bg-muted grid place-items-center shrink-0"><Bookmark size={16}/></div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{block.content}</div>
-                <div className="text-xs text-muted-foreground truncate">{block.properties.title as string || 'Bookmark'}</div>
-              </div>
-            </a>
-          ) : null}
-          <input defaultValue={block.content} onBlur={e=> onChange({ content:e.target.value })} placeholder="Paste URL to bookmark..." className="w-full mt-2 text-sm border rounded-xl px-3 py-2 bg-background" />
-          <input defaultValue={block.properties.title as string||''} onBlur={e=> onChange({ properties:{ ...block.properties, title:e.target.value}})} placeholder="Title (optional)" className="w-full mt-1 text-xs border rounded-xl px-3 py-1.5 bg-background" />
+          <BookmarkBlockView block={block} onChange={onChange} onDelete={onDelete} />
         </div>
         {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
