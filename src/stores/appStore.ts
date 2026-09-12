@@ -13,7 +13,7 @@ import { buildNotificationsForEvent, isDoneTransition, loadAutomationRules, pars
 import { loadVersions, saveVersions, buildVersion, nextVersionNumber, appendVersion, snapshotsEqual, AUTO_CAPTURE_MIN_MS, type VersionMap } from '@/lib/versions'
 import {
   onSyncStatus, queuePush, pushNow,
-  fetchWorkspaces, createRemoteWorkspace, pullWorkspace,
+  fetchWorkspaces, createRemoteWorkspace, patchWorkspace, pullWorkspace,
   postPage, patchPage, deletePageRemote,
   postBlock, patchBlock, deleteBlockRemote, reorderRemoteBlocks, reconcilePageBlocks,
   postDatabase, patchDatabase, deleteDatabaseRemote,
@@ -392,6 +392,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateWorkspace: (patch) => {
     set(s => ({ workspace: { ...s.workspace, ...patch, updatedAt: new Date().toISOString() } }))
     persist(get())
+    // Discrete save (Settings → Save button): push immediately so a fast
+    // reload can't lose it while a debounce is pending, and so the next
+    // boot pull doesn't overwrite it with stale server state.
+    if (serverMode()) {
+      const w = get().workspace
+      const body: { name?: string; icon?: string | null } = {}
+      if (patch.name !== undefined) body.name = w.name
+      if (patch.icon !== undefined) body.icon = w.icon ?? null
+      if (Object.keys(body).length > 0) {
+        // 404-tolerant: on first run against a fresh backend the local id may
+        // not exist server-side yet (the boot pull uploads + re-ids it).
+        pushNow(() => patchWorkspace(w.id, body).catch((e: any) => {
+          if (e?.status === 404) return null
+          throw e
+        }))
+      }
+    }
   },
   signIn: async (email, password) => {
     invalidateInflightSync() // kill pending pushes from any previous account

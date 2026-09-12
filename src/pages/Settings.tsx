@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '@/stores/appStore'
 import { Card, CardContent, CardHeader } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -65,6 +65,12 @@ export function Settings() {
   const [email, setEmail] = useState(user.email)
   const [wsName, setWsName] = useState(workspace.name)
   const [wsIcon, setWsIcon] = useState(workspace.icon ?? '')
+  // Resync drafts when the workspace changes underneath us (e.g. a server
+  // pull after reload) so the form never shows/saves stale values.
+  useEffect(() => {
+    setWsName(workspace.name)
+    setWsIcon(workspace.icon ?? '')
+  }, [workspace.id, workspace.name, workspace.icon])
   const [wsUrl, setWsUrl] = useState(settings.collaboration.wsUrl)
   const [rules, setRules] = useState<AutomationRule[]>(() => loadAutomationRules())
   const [avatarBusy, setAvatarBusy] = useState(false)
@@ -129,7 +135,7 @@ export function Settings() {
   const saveWorkspace = () => {
     if (!wsName.trim()) { push({ title: 'Workspace name is required' }); return }
     updateWorkspace({ name: wsName.trim(), icon: wsIcon.trim() || undefined })
-    push({ title: 'Workspace saved' })
+    push({ title: 'Workspace saved', desc: 'Name and icon persist across reloads and sync when signed in.' })
   }
 
   const exportWorkspace = () => {
@@ -235,7 +241,22 @@ export function Settings() {
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-[1fr_120px] gap-3">
                   <div><label className="text-xs font-medium" htmlFor="ws-name">Workspace name</label><Input id="ws-name" value={wsName} onChange={e => setWsName(e.target.value)} className="mt-1" /></div>
-                  <div><label className="text-xs font-medium" htmlFor="ws-icon">Icon</label><Input id="ws-icon" value={wsIcon} onChange={e => setWsIcon(e.target.value)} className="mt-1" maxLength={4} /></div>
+                  <div><label className="text-xs font-medium" htmlFor="ws-icon">Icon</label><Input id="ws-icon" value={wsIcon} onChange={e => setWsIcon(e.target.value)} className="mt-1" maxLength={4} placeholder="⬢" /></div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5" aria-label="Quick-pick workspace icon">
+                  {['⬢', '🚀', '◈', '📁', '💼', '🎯', '🌟', '🔥'].map(ic => (
+                    <button
+                      key={ic}
+                      onClick={() => setWsIcon(ic)}
+                      title={`Use ${ic} as workspace icon`}
+                      className={`w-8 h-8 rounded-lg border grid place-items-center text-base transition-transform hover:scale-110 ${wsIcon === ic ? 'ring-2 ring-violet-500 ring-offset-1' : 'hover:bg-accent'}`}
+                    >
+                      {ic}
+                    </button>
+                  ))}
+                  {wsIcon ? (
+                    <button onClick={() => setWsIcon('')} className="ml-1 text-xs text-muted-foreground hover:text-foreground hover:underline">Clear</button>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-2">
                   <Button size="sm" onClick={saveWorkspace}>Save</Button>

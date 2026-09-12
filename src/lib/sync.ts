@@ -95,6 +95,10 @@ export async function createRemoteWorkspace(name: string, icon?: string): Promis
   return apiFetch('/api/workspaces', { method: 'POST', body: JSON.stringify({ name, icon }) })
 }
 
+export async function patchWorkspace(id: string, patch: { name?: string; icon?: string | null }): Promise<any> {
+  return apiFetch(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) })
+}
+
 export async function pullWorkspace(workspaceId: string): Promise<Omit<PulledState, 'workspace'>> {
   const [pages, databases] = await Promise.all([
     apiFetch<any[]>(`/api/pages?workspaceId=${encodeURIComponent(workspaceId)}`),

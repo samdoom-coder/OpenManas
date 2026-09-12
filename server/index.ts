@@ -285,6 +285,36 @@ app.post('/api/workspaces', authStub, async (req:any, res)=> {
   db.workspaces.push(ws); saveDB()
   res.status(201).json(ws)
 })
+app.patch('/api/workspaces/:id', authStub, async (req:any, res)=> {
+  const parsed = z.object({
+    name: z.string().min(1).max(100).optional(),
+    icon: z.string().max(100).nullable().optional(),
+  }).safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
+  if (parsed.data.name === undefined && parsed.data.icon === undefined) {
+    return res.status(400).json({ error: 'Nothing to update (name and/or icon required)' })
+  }
+  if (!await requireWorkspaceAction(res, req.params.id, (req as any).userId, 'edit')) return
+  if (usingPg) {
+    try {
+      const sets: string[] = []
+      const vals: any[] = []
+      if (parsed.data.name !== undefined) { vals.push(parsed.data.name); sets.push(`name=$${vals.length}`) }
+      if (parsed.data.icon !== undefined) { vals.push(parsed.data.icon); sets.push(`icon=$${vals.length}`) }
+      vals.push(req.params.id)
+      const rows = await pgQuery(`UPDATE workspaces SET ${sets.join(', ')}, updated_at=NOW() WHERE id=$${vals.length} RETURNING *`, vals)
+      if (!rows[0]) return res.status(404).json({ error: 'Workspace not found' })
+      return res.json(mapWorkspace(rows[0]))
+    } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
+  }
+  const w = db.workspaces.find((x: any)=> x.id===req.params.id)
+  if (!w) return res.status(404).json({ error: 'Workspace not found' })
+  if (parsed.data.name !== undefined) w.name = parsed.data.name
+  if (parsed.data.icon !== undefined) w.icon = parsed.data.icon ?? undefined
+  w.updatedAt = new Date().toISOString()
+  saveDB()
+  res.json(w)
+})
 
 // Workspace members — per-user ACL backing (slice 4).
 // Owner + admins manage; any member can list. Legacy open workspaces
