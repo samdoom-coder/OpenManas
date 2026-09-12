@@ -12,7 +12,7 @@ export interface User {
 export interface Workspace {
   id: ID
   name: string
-  icon?: string
+  icon?: string // emoji char, or an uploaded image (resized data: URL) / http(s) URL
   ownerId: ID
   createdAt: string
   updatedAt: string

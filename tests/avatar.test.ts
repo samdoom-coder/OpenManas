@@ -69,6 +69,17 @@ describe('fileToAvatarDataUrl', () => {
   })
 })
 
+describe('isImageIcon', () => {
+  it('detects uploaded/linked images vs emoji text', () => {
+    expect(avatar.isImageIcon('data:image/jpeg;base64,/9j/')).toBe(true)
+    expect(avatar.isImageIcon('https://example.com/icon.png')).toBe(true)
+    expect(avatar.isImageIcon('🚀')).toBe(false)
+    expect(avatar.isImageIcon('⬢')).toBe(false)
+    expect(avatar.isImageIcon('')).toBe(false)
+    expect(avatar.isImageIcon(undefined)).toBe(false)
+  })
+})
+
 describe('profile sync client', () => {
   it('PATCHes /api/users/me with name/avatar', async () => {
     const calls: Array<{ method: string; url: string; body: unknown }> = []

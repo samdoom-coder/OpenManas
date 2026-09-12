@@ -1,5 +1,6 @@
 import { useAppStore } from '@/stores/appStore'
 import { cn } from '@/lib/utils'
+import { isImageIcon } from '@/lib/avatar'
 import { LayoutDashboard, Files, Database, Star, Clock, Share2, Trash2, LayoutTemplate, Settings, ChevronDown, Plus, Search, Sparkles, MoreHorizontal } from 'lucide-react'
 import { useState } from 'react'
 import { PageIconInline } from '@/components/ui/pageIcon'
@@ -28,7 +29,13 @@ export function Sidebar({ onNavigate, activeRoute }: { onNavigate?: (r:string)=>
   return (
     <div className="w-[280px] border-r bg-card flex flex-col shrink-0 overflow-hidden">
       <div className="h-[56px] flex items-center gap-3 px-3 border-b shrink-0">
-        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 grid place-items-center text-white font-bold text-sm">{workspace.icon || '⬢'}</div>
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 grid place-items-center text-white font-bold text-sm overflow-hidden shrink-0">
+          {isImageIcon(workspace.icon) ? (
+            <img src={workspace.icon} alt="" className="h-full w-full object-cover" draggable={false} />
+          ) : (
+            workspace.icon || '⬢'
+          )}
+        </div>
         <div className="flex-1 min-w-0">
           <div className="font-semibold text-sm truncate">{workspace.name}</div>
           <div className="text-xs text-muted-foreground truncate">{user.name} • {pages.length} pages</div>

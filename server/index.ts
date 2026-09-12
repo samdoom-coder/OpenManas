@@ -288,7 +288,8 @@ app.post('/api/workspaces', authStub, async (req:any, res)=> {
 app.patch('/api/workspaces/:id', authStub, async (req:any, res)=> {
   const parsed = z.object({
     name: z.string().min(1).max(100).optional(),
-    icon: z.string().max(100).nullable().optional(),
+    // 500KB: emoji is bytes, but uploaded custom icons are resized data: URLs.
+    icon: z.string().max(500000).nullable().optional(),
   }).safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
   if (parsed.data.name === undefined && parsed.data.icon === undefined) {

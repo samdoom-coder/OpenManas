@@ -67,4 +67,28 @@ describe('updateWorkspace', () => {
     expect(fetchMock).not.toHaveBeenCalled()
     expect(useAppStore.getState().workspace.icon).toBe('🎯')
   })
+
+  it('persists an uploaded image icon and sends it to the server', async () => {
+    const img = 'data:image/jpeg;base64,/9j/4AAQAAAA'
+    const calls: string[] = []
+    let body: any = null
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: any) => {
+        calls.push(`${init?.method || 'GET'} ${url}`)
+        try { body = JSON.parse(init?.body ?? 'null') } catch { body = null }
+        return jsonOk({ ok: true })
+      }),
+    )
+    api.saveSession({ user: { id: 'u', email: 'e@x.y', name: 'U' }, token: 'tok' })
+    useAppStore.setState({ token: 'tok', backendMode: 'server' })
+    const wsId = useAppStore.getState().workspace.id
+    useAppStore.getState().updateWorkspace({ icon: img })
+    expect(useAppStore.getState().workspace.icon).toBe(img)
+    const saved = JSON.parse(mem.get('openmanas_state_v1')!) as any
+    expect(saved.workspace.icon).toBe(img)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(calls).toContain(`PATCH /api/workspaces/${wsId}`)
+    expect(body?.icon).toBe(img)
+  })
 })

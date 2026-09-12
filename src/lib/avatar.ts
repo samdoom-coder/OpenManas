@@ -106,3 +106,15 @@ export async function fileToAvatarDataUrl(file: File, maxDim = MAX_AVATAR_DIM): 
   if (!raw.startsWith('data:image/')) throw new Error('Could not read that image.')
   return downscaleToAvatar(raw, maxDim)
 }
+
+// --- Workspace icons ---
+// Workspace.icon holds either emoji/text OR an uploaded image (resized data:
+// URL, same pipeline as avatars). Sidebar/Settings branch on this.
+export const MAX_WORKSPACE_ICON_DIM = 128 // small square — keeps localStorage + API payloads small
+
+/** True when a workspace icon value is an uploaded/linked image (not emoji/text). */
+export function isImageIcon(icon?: string | null): boolean {
+  if (!icon) return false
+  const v = icon.trim()
+  return v.startsWith('data:image/') || /^https?:\/\//i.test(v)
+}

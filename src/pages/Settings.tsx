@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/input'
 import { useToast } from '@/components/ui/toast'
 import { storageService } from '@/lib/storageService'
-import { AVATAR_ACCEPT, fileToAvatarDataUrl, getInitials } from '@/lib/avatar'
+import { AVATAR_ACCEPT, fileToAvatarDataUrl, getInitials, isImageIcon, MAX_WORKSPACE_ICON_DIM } from '@/lib/avatar'
 import { loadAutomationRules, saveAutomationRules, type AutomationRule } from '@/lib/automation'
 import type { ThemeMode, DatabaseDefaultView } from '@/lib/settings'
 
@@ -76,6 +76,9 @@ export function Settings() {
   const [avatarBusy, setAvatarBusy] = useState(false)
   const [avatarError, setAvatarError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
+  const [wsIconBusy, setWsIconBusy] = useState(false)
+  const [wsIconError, setWsIconError] = useState<string | null>(null)
+  const wsIconFileRef = useRef<HTMLInputElement | null>(null)
 
   const onAvatarFile = async (f: File | undefined) => {
     if (!f) return
@@ -99,6 +102,21 @@ export function Settings() {
     updateUser({ avatar: '' })
     setAvatarError(null)
     push({ title: 'Profile picture removed' })
+  }
+
+  const onWsIconFile = async (f: File | undefined) => {
+    if (!f) return
+    setWsIconBusy(true)
+    setWsIconError(null)
+    try {
+      const dataUrl = await fileToAvatarDataUrl(f, MAX_WORKSPACE_ICON_DIM)
+      setWsIcon(dataUrl)
+    } catch (e) {
+      setWsIconError(e instanceof Error ? e.message : 'Could not read that image.')
+    } finally {
+      setWsIconBusy(false)
+      try { if (wsIconFileRef.current) wsIconFileRef.current.value = '' } catch { /* noop */ }
+    }
   }
 
   const toggleRule = (id: AutomationRule['id']) => {
@@ -239,24 +257,48 @@ export function Settings() {
             <Card className="rounded-2xl">
               <CardHeader><h3 className="font-semibold">Workspace</h3></CardHeader>
               <CardContent className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-[1fr_120px] gap-3">
-                  <div><label className="text-xs font-medium" htmlFor="ws-name">Workspace name</label><Input id="ws-name" value={wsName} onChange={e => setWsName(e.target.value)} className="mt-1" /></div>
-                  <div><label className="text-xs font-medium" htmlFor="ws-icon">Icon</label><Input id="ws-icon" value={wsIcon} onChange={e => setWsIcon(e.target.value)} className="mt-1" maxLength={4} placeholder="⬢" /></div>
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5" aria-label="Quick-pick workspace icon">
-                  {['⬢', '🚀', '◈', '📁', '💼', '🎯', '🌟', '🔥'].map(ic => (
-                    <button
-                      key={ic}
-                      onClick={() => setWsIcon(ic)}
-                      title={`Use ${ic} as workspace icon`}
-                      className={`w-8 h-8 rounded-lg border grid place-items-center text-base transition-transform hover:scale-110 ${wsIcon === ic ? 'ring-2 ring-violet-500 ring-offset-1' : 'hover:bg-accent'}`}
-                    >
-                      {ic}
-                    </button>
-                  ))}
-                  {wsIcon ? (
-                    <button onClick={() => setWsIcon('')} className="ml-1 text-xs text-muted-foreground hover:text-foreground hover:underline">Clear</button>
-                  ) : null}
+                <div><label className="text-xs font-medium" htmlFor="ws-name">Workspace name</label><Input id="ws-name" value={wsName} onChange={e => setWsName(e.target.value)} className="mt-1" /></div>
+                <div>
+                  <span className="text-xs font-medium">Icon — emoji or your own image</span>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl border bg-muted text-xl">
+                      {isImageIcon(wsIcon) ? (
+                        <img src={wsIcon} alt="" className="h-full w-full object-cover" draggable={false} />
+                      ) : wsIcon ? (
+                        <span>{wsIcon}</span>
+                      ) : (
+                        <span className="text-muted-foreground">⬢</span>
+                      )}
+                    </span>
+                    <Button size="sm" variant="outline" onClick={() => wsIconFileRef.current?.click()} disabled={wsIconBusy}>
+                      {wsIconBusy ? 'Uploading…' : isImageIcon(wsIcon) ? 'Replace image' : 'Upload image'}
+                    </Button>
+                    {wsIcon ? (
+                      <button onClick={() => { setWsIcon(''); setWsIconError(null) }} className="text-xs text-muted-foreground hover:text-foreground hover:underline">Remove</button>
+                    ) : null}
+                    <input ref={wsIconFileRef} type="file" accept={AVATAR_ACCEPT} className="hidden" aria-label="Upload workspace icon" onChange={e => onWsIconFile(e.target.files?.[0])} />
+                  </div>
+                  {wsIconError ? <div className="text-xs text-red-500 mt-1">{wsIconError}</div> : null}
+                  {!isImageIcon(wsIcon) && (
+                    <>
+                      <div className="mt-2"><label className="text-xs text-muted-foreground" htmlFor="ws-icon">Or type an emoji</label><Input id="ws-icon" value={wsIcon} onChange={e => setWsIcon(e.target.value)} className="mt-1" placeholder="⬢" /></div>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Quick-pick workspace icon">
+                        {['⬢', '🚀', '◈', '📁', '💼', '🎯', '🌟', '🔥'].map(ic => (
+                          <button
+                            key={ic}
+                            onClick={() => setWsIcon(ic)}
+                            title={`Use ${ic} as workspace icon`}
+                            className={`w-8 h-8 rounded-lg border grid place-items-center text-base transition-transform hover:scale-110 ${wsIcon === ic ? 'ring-2 ring-violet-500 ring-offset-1' : 'hover:bg-accent'}`}
+                          >
+                            {ic}
+                          </button>
+                        ))}
+                        {wsIcon ? (
+                          <button onClick={() => setWsIcon('')} className="ml-1 text-xs text-muted-foreground hover:text-foreground hover:underline">Clear</button>
+                        ) : null}
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <Button size="sm" onClick={saveWorkspace}>Save</Button>
