@@ -727,10 +727,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (serverMode()) queuePush(`reconcile:${pageId}`, () => reconcilePageBlocks(pageId, get().blocks.filter(b => b.pageId === pageId)), 1500)
   },
   updateBlock: (id, patch) => {
-    const pageId = get().blocks.find(b=> b.id===id)?.pageId
+    const prev = get().blocks.find(b=> b.id===id)
+    const pageId = prev?.pageId
     set(s=> ({ blocks: s.blocks.map(b=> b.id===id?{...b, ...patch, updatedAt: new Date().toISOString()}:b)}))
-    // debounce persist happens via effect
-    if (serverMode()) queuePush(`block:${id}`, () => patchBlock(id, patch))
+    // Text typing stays on the debounced autosave (400ms) + debounced push
+    // (1000ms) via the store subscription below. Bookmark edits are discrete
+    // (Add/Done button, one click) — persist + push them synchronously so a
+    // fast reload can't lose the link while the debounces are still pending.
+    if (prev?.type === 'bookmark') {
+      persist(get())
+      if (serverMode()) pushNow(() => patchBlock(id, patch))
+    } else {
+      // debounce persist happens via effect
+      if (serverMode()) queuePush(`block:${id}`, () => patchBlock(id, patch))
+    }
     if (pageId) maybeAutoCapture(pageId)
   },
   deleteBlock: (id) => {
@@ -1128,6 +1138,18 @@ useAppStore.subscribe((state)=>{
   clearTimeout(saveTimer)
   saveTimer = setTimeout(()=> persist(state), 400)
 })
+
+/**
+ * Synchronous flush of the debounced autosave. Call on pagehide/visibility
+ * hidden so a fast reload never drops the last <400ms of edits (e.g. typing
+ * then instantly reloading). Safe to call any time.
+ */
+export function flushPersist() {
+  try {
+    clearTimeout(saveTimer)
+    persist(useAppStore.getState())
+  } catch { /* noop */ }
+}
 
 // backend push failures surface as sync status (slice 2)
 onSyncStatus((s, error) => {

@@ -1,4 +1,4 @@
-import { useAppStore } from '@/stores/appStore'
+import { useAppStore, flushPersist } from '@/stores/appStore'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Topbar } from '@/components/layout/Topbar'
 import { CommandPalette, GlobalSearch } from '@/components/layout/CommandPalette'
@@ -10,7 +10,7 @@ import { Auth } from '@/pages/Auth'
 import { SharedPage } from '@/pages/SharedPage'
 import { ShareDialog } from '@/components/features/ShareDialog'
 import { NotificationCenter } from '@/components/features/NotificationCenter'
-import { resolveShareToken } from '@/lib/sync'
+import { resolveShareToken, flushPushes } from '@/lib/sync'
 import { Toaster } from '@/components/ui/toast'
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
@@ -35,6 +35,23 @@ export default function App() {
       try { await useAppStore.getState().validateSession() } catch { /* offline */ }
       try { await useAppStore.getState().pullFromServer() } catch { /* pull reports via syncStatus */ }
     })()
+  }, [])
+  // Flush pending autosave + server pushes when the tab hides/closes, so a
+  // fast edit → reload can't lose the last change (autosave is debounced
+  // 400ms, block pushes 1000ms — a reload inside that window used to drop
+  // the edit, and the boot pull then overwrote it with stale server state).
+  useEffect(()=> {
+    const onHide = () => {
+      try { flushPersist() } catch { /* noop */ }
+      try { flushPushes() } catch { /* noop */ }
+    }
+    const onVis = () => { if (document.visibilityState === 'hidden') onHide() }
+    window.addEventListener('pagehide', onHide)
+    document.addEventListener('visibilitychange', onVis)
+    return ()=> {
+      window.removeEventListener('pagehide', onHide)
+      document.removeEventListener('visibilitychange', onVis)
+    }
   }, [])
   // Slice 3: after sign-in, consume a pending invite link.
   useEffect(()=> {

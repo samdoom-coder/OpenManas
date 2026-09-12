@@ -21,10 +21,13 @@ function setStatus(s: SyncStatus, error?: string | null) {
 
 // --- debounced fire-and-forget pushes (updateBlock fires per keystroke) ---
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
+const pendingOps = new Map<string, () => Promise<unknown>>()
 export function queuePush(key: string, op: () => Promise<unknown>, ms = 1000) {
   if (timers.has(key)) clearTimeout(timers.get(key)!)
+  pendingOps.set(key, op)
   timers.set(key, setTimeout(() => {
     timers.delete(key)
+    pendingOps.delete(key)
     op().catch((e) => setStatus('error', e instanceof Error ? e.message : 'Sync failed'))
   }, ms))
 }
@@ -43,10 +46,30 @@ export function pushNow(op: () => Promise<unknown>) {
 export function cancelPush(key: string) {
   if (timers.has(key)) clearTimeout(timers.get(key)!)
   timers.delete(key)
+  pendingOps.delete(key)
 }
 export function cancelAllPushes() {
   for (const t of timers.values()) clearTimeout(t)
   timers.clear()
+  pendingOps.clear()
+}
+
+/**
+ * Run pending debounced pushes immediately instead of dropping them when the
+ * tab hides/closes. Fire-and-forget — the browser may still cancel in-flight
+ * requests on unload, but the synchronous local persist (flushPersist) already
+ * guards a plain reload; the next pull/push cycle reconciles the rest.
+ */
+export function flushPushes() {
+  const pending = [...pendingOps.values()]
+  for (const t of timers.values()) clearTimeout(t)
+  timers.clear()
+  pendingOps.clear()
+  for (const op of pending) {
+    try {
+      op().catch((e: unknown) => setStatus('error', e instanceof Error ? e.message : 'Sync failed'))
+    } catch { /* noop */ }
+  }
 }
 
 // --- PULL ---
