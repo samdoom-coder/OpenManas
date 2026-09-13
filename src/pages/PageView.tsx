@@ -73,6 +73,15 @@ export function PageView({ pageId }: { pageId: string }) {
     }
   }, [themeOpen])
 
+  // Topbar ••• menu "Move to…" reuses this dialog via event.
+  useEffect(() => {
+    const fn = (e: Event) => {
+      if ((e as CustomEvent<{ pageId?: string }>).detail?.pageId === pageId) setShowMove(true)
+    }
+    window.addEventListener('openmanas:move-page', fn)
+    return () => window.removeEventListener('openmanas:move-page', fn)
+  }, [pageId])
+
   if (!page) return <div className="p-8 text-center text-muted-foreground">Page not found or trashed.</div>
   if (page.isTrashed) return <TrashedView page={page} />
 
@@ -516,7 +525,7 @@ function PageVersionHistory({ pageId }: { pageId:string }) {
   }
 
   return (
-    <div className="rounded-2xl border p-4 bg-card">
+    <div id="page-history" className="rounded-2xl border p-4 bg-card scroll-mt-20">
       <div className="flex items-center gap-2">
         <span className="flex items-center gap-2 font-medium text-sm"><History size={16}/> Version history</span>
         <span className="text-xs text-muted-foreground">{list.length > 0 ? `${list.length} snapshot${list.length === 1 ? '' : 's'}` : 'No snapshots yet'}</span>
