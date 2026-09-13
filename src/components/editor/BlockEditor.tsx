@@ -21,6 +21,7 @@ import { resolveEmbedFilter, resolveEmbedSort, hasEmbedOverrides } from '@/lib/d
 import { acceptMatches } from '@/lib/fileRefs'
 import { previewUrl, kindOf, MAX_FILE_SIZE } from '@/components/features/FileManager'
 import { BookmarkBlockView } from './BookmarkCard'
+import { ChartBlockView } from './ChartBlock'
 
 // The 6 database views a linked-DB embed can show — one at a time.
 // Step 1 picks the database, Step 2 picks exactly one of these.
@@ -778,6 +779,23 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         {renderCommentHover()}
         <div className="w-full">
           <TableBlock content={block.content} onChange={(html)=> onChange({ content: html })} />
+        </div>
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
+      </div>
+    )
+  }
+
+  // Chart - FULL BLOCK width (data lives as JSON in block.content, like TableBlock)
+  if (block.type==='chart') {
+    return (
+      <div className={cn("group relative rounded-xl px-1 py-2 hover:bg-accent/30", dragId===block.id && "opacity-50", focused && "bg-accent/20")}
+        draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
+      >
+        {renderDragMenu()}
+        {renderCommentHover()}
+        <div className="w-full">
+          <ChartBlockView content={block.content} onChange={(json)=> onChange({ content: json })} />
         </div>
         {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />

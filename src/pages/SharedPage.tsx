@@ -9,6 +9,8 @@ import { stripHtml } from '@/lib/versions'
 import type { Block, Page } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { BookmarkCard } from '@/components/editor/BookmarkCard'
+import { ChartSvg } from '@/components/editor/ChartBlock'
+import { parseChartContent } from '@/lib/charts'
 import { fetchLinkPreview } from '@/lib/linkPreview'
 
 export function SharedPage({ token, onSignIn }: { token: string; onSignIn: () => void }) {
@@ -144,6 +146,15 @@ function SharedBlock({ block }: { block: Block }) {
       ) : null
     case 'bookmark':
       return block.content ? <SharedBookmark block={block} /> : null
+    case 'chart': {
+      const data = parseChartContent(block.content || '')
+      return (
+        <div className="rounded-xl border bg-card my-2 p-3">
+          <div className="text-sm font-semibold mb-1">📊 {data.title}</div>
+          <ChartSvg data={data} />
+        </div>
+      )
+    }
     default:
       return text ? <p className="py-0.5 leading-relaxed" dangerouslySetInnerHTML={html(block.content)} /> : null
   }

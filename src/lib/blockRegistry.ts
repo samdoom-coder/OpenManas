@@ -112,6 +112,13 @@ register({
   slash: { id: 'table', title: 'Table', description: 'Insert table', icon: '⊞', keywords: ['table'], blockType: 'table' },
 })
 register({
+  type: 'chart',
+  label: 'Chart',
+  description: 'Bar, line, pie or donut chart',
+  icon: 'barChart',
+  slash: { id: 'chart', title: 'Chart', description: 'Visualize data (bar, line, pie)', icon: '📊', keywords: ['chart', 'graph', 'bar', 'line', 'pie', 'donut', 'analytics', 'visualize'], blockType: 'chart' },
+})
+register({
   type: 'image',
   label: 'Image',
   description: 'Upload or embed image',
