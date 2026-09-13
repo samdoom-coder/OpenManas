@@ -22,7 +22,9 @@ import { acceptMatches } from '@/lib/fileRefs'
 import { previewUrl, kindOf, MAX_FILE_SIZE } from '@/components/features/FileManager'
 import { BookmarkBlockView } from './BookmarkCard'
 import { ChartBlockView } from './ChartBlock'
+import { FormBlockView } from './FormBlock'
 import { defaultChartData } from '@/lib/charts'
+import { defaultFormData } from '@/lib/forms'
 
 // The 6 database views a linked-DB embed can show — one at a time.
 // Step 1 picks the database, Step 2 picks exactly one of these.
@@ -58,10 +60,12 @@ export function BlockEditor({ pageId }: { pageId: string }) {
   const [dragId, setDragId] = useState<string | null>(null)
 
   const handleNew = (pos?: number, type:string='paragraph') => {
-    // New charts start with valid starter JSON (not '') so the very first
-    // POST already carries the chart — even if every later PATCH were lost,
-    // a reload still renders a chart instead of dropping the block.
-    const initial = type === 'chart' ? JSON.stringify(defaultChartData()) : ''
+    // New charts/forms start with valid starter JSON (not '') so the very
+    // first POST already carries the widget — even if every later PATCH were
+    // lost, a reload still renders it instead of dropping the block.
+    const initial = type === 'chart' ? JSON.stringify(defaultChartData())
+      : type === 'form' ? JSON.stringify(defaultFormData())
+      : ''
     const b = addBlock(pageId, type as any, initial, pos)
     setTimeout(()=> document.getElementById(`block-${b.id}`)?.focus(), 30)
   }
@@ -350,11 +354,13 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
     }
   }
   const handleSlashSelect = (newType: string) => {
-    // Slash / turn-into a chart seeds starter JSON in the same patch as the
-    // type flip (updateBlock persists+pushes type changes synchronously, so
-    // the chart survives even an instant reload).
+    // Slash / turn-into a chart or form seeds starter JSON in the same patch
+    // as the type flip (updateBlock persists+pushes type changes
+    // synchronously, so the widget survives even an instant reload).
     onChange(newType === 'chart'
       ? { type: newType as any, content: JSON.stringify(defaultChartData()) }
+      : newType === 'form'
+      ? { type: newType as any, content: JSON.stringify(defaultFormData()) }
       : { type: newType as any, content: '' })
     closeSlash()
     setTimeout(()=> {
@@ -806,6 +812,23 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         {renderCommentHover()}
         <div className="w-full">
           <ChartBlockView content={block.content} onChange={(json)=> onChange({ content: json })} />
+        </div>
+        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
+      </div>
+    )
+  }
+
+  // Form - FULL BLOCK width (definition JSON in block.content, responses in properties)
+  if ((block.type as string)==='form') {
+    return (
+      <div className={cn("group relative rounded-xl px-1 py-2 hover:bg-accent/30", dragId===block.id && "opacity-50", focused && "bg-accent/20")}
+        draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
+      >
+        {renderDragMenu()}
+        {renderCommentHover()}
+        <div className="w-full">
+          <FormBlockView block={block} onChange={onChange} />
         </div>
         {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />

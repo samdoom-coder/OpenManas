@@ -847,7 +847,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(s=> ({ blocks: s.blocks.map(b=> b.id===id?{...b, ...patch, updatedAt: new Date().toISOString()}:b)}))
     // Text typing stays on the debounced autosave (400ms) + debounced push
     // (1000ms) via the store subscription below. Widget edits are discrete
-    // (bookmark Add/Done, chart data/type controls, slash turn-into) —
+    // (bookmark Add/Done, chart/form controls, slash turn-into) —
     // persist + push them synchronously so a fast reload can't lose the
     // block while the debounces are still pending. Without this, server
     // mode loses the change twice: localStorage still holds the old value
@@ -856,6 +856,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const discrete =
       prev?.type === 'bookmark' ||
       prev?.type === 'chart' ||
+      prev?.type === 'form' ||
       (patch as Partial<Block>).type !== undefined
     if (discrete) {
       persist(get())

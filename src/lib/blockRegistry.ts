@@ -119,6 +119,13 @@ register({
   slash: { id: 'chart', title: 'Chart', description: 'Visualize data (bar, line, pie)', icon: '📊', keywords: ['chart', 'graph', 'bar', 'line', 'pie', 'donut', 'analytics', 'visualize'], blockType: 'chart' },
 })
 register({
+  type: 'form',
+  label: 'Form',
+  description: 'Collect responses with fields',
+  icon: 'clipboardList',
+  slash: { id: 'form', title: 'Form', description: 'Build a form, collect responses', icon: '📝', keywords: ['form', 'survey', 'questions', 'responses', 'feedback', 'signup'], blockType: 'form' },
+})
+register({
   type: 'image',
   label: 'Image',
   description: 'Upload or embed image',

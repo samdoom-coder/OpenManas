@@ -62,7 +62,7 @@ export type BlockType =
   | 'heading1' | 'heading2' | 'heading3'
   | 'bulleted_list' | 'numbered_list' | 'todo' | 'quote' | 'divider'
   // advanced
-  | 'code' | 'callout' | 'toggle' | 'table' | 'chart' | 'image' | 'video' | 'audio' | 'file' | 'bookmark' | 'equation'
+  | 'code' | 'callout' | 'toggle' | 'table' | 'chart' | 'form' | 'image' | 'video' | 'audio' | 'file' | 'bookmark' | 'equation'
   // workspace
   | 'page_embed' | 'database_embed' | 'relation' | 'mention'
 

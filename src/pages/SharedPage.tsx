@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { BookmarkCard } from '@/components/editor/BookmarkCard'
 import { ChartSvg } from '@/components/editor/ChartBlock'
 import { parseChartContent } from '@/lib/charts'
+import { parseFormContent } from '@/lib/forms'
 import { fetchLinkPreview } from '@/lib/linkPreview'
 
 export function SharedPage({ token, onSignIn }: { token: string; onSignIn: () => void }) {
@@ -152,6 +153,24 @@ function SharedBlock({ block }: { block: Block }) {
         <div className="rounded-xl border bg-card my-2 p-3">
           <div className="text-sm font-semibold mb-1">📊 {data.title}</div>
           <ChartSvg data={data} />
+        </div>
+      )
+    }
+    case 'form': {
+      const data = parseFormContent(block.content || '')
+      return (
+        <div className="rounded-xl border bg-card my-2 p-3">
+          <div className="text-sm font-semibold mb-1">📝 {data.title}</div>
+          {data.description ? <div className="text-xs text-muted-foreground mb-2">{data.description}</div> : null}
+          <div className="space-y-2">
+            {data.fields.map((f) => (
+              <div key={f.id}>
+                <div className="text-xs font-medium">{f.label || 'Untitled question'}{f.required ? <span className="text-red-500"> *</span> : null}</div>
+                <div className="mt-0.5 h-9 rounded-lg border bg-muted/30" />
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 text-[11px] text-muted-foreground">Shared view is read-only — sign in to respond.</div>
         </div>
       )
     }
