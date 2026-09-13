@@ -13,6 +13,7 @@ export type AutomationEventType =
   | 'mention'
   | 'comment_added'
   | 'page_shared'
+  | 'due_reminder'
 
 export interface AutomationEventBase {
   type: AutomationEventType
@@ -60,12 +61,22 @@ export interface PageSharedEvent extends AutomationEventBase {
   visibility: string
 }
 
+export interface DueReminderEvent extends AutomationEventBase {
+  type: 'due_reminder'
+  databaseId: string
+  recordId: string
+  title: string
+  /** Human label like "due today" / "due 3 days ago" (computed by the sender). */
+  dueLabel: string
+}
+
 export type AutomationEvent =
   | StatusDoneEvent
   | TaskAssignedEvent
   | MentionEvent
   | CommentAddedEvent
   | PageSharedEvent
+  | DueReminderEvent
 
 export interface AutomationRule {
   id: AutomationEventType
@@ -81,6 +92,7 @@ export const DEFAULT_AUTOMATION_RULES: AutomationRule[] = [
   { id: 'mention', name: 'Mention', description: 'When someone is @mentioned in a comment → notify', notifType: 'mention', enabled: true },
   { id: 'comment_added', name: 'New comment', description: 'When a comment is added → notify followers', notifType: 'comment', enabled: true },
   { id: 'page_shared', name: 'Page shared', description: 'When a page is shared (workspace/public) → notify', notifType: 'share', enabled: true },
+  { id: 'due_reminder', name: 'Due reminders', description: 'When Calendar sends due-date reminders → notify inbox', notifType: 'task_assigned', enabled: true },
 ]
 
 const KEY = 'openmanas_automations_v1'
@@ -246,6 +258,15 @@ export function buildNotificationsForEvent(
         title: `Shared: ${event.title || 'Untitled page'}`,
         body: `Visibility → ${event.visibility}`,
         link: `page:${event.pageId}`,
+      }
+      return shouldNotify(prefs, draft.type) ? [draft] : []
+    }
+    case 'due_reminder': {
+      const draft: NotificationDraft = {
+        type: 'task_assigned',
+        title: `${event.dueLabel === 'due today' ? 'Due today' : event.dueLabel[0]?.toUpperCase() + event.dueLabel.slice(1)}: ${event.title || 'Untitled record'}`,
+        body: event.dueLabel,
+        link: `database:${event.databaseId}/record:${event.recordId}`,
       }
       return shouldNotify(prefs, draft.type) ? [draft] : []
     }

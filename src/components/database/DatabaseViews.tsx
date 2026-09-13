@@ -9,10 +9,12 @@ import { ColumnHeaderMenu, AddPropertyDialog, EditPropertyDialog } from '@/compo
 import { RecordDetailModal } from '@/components/database/RecordDetail'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, Filter, ArrowUpDown, ArrowUp, ArrowDown, ArrowUpRight, Eye, EyeOff, MoreHorizontal, Calendar, LayoutGrid, List, Table as TableIcon, Kanban, Clock, GanttChart, Settings, SlidersHorizontal, X, ChevronDown, Copy, Trash2, GripVertical, Download, Upload } from 'lucide-react'
+import { Plus, Filter, ArrowUpDown, ArrowUp, ArrowDown, ArrowUpRight, Eye, EyeOff, MoreHorizontal, Calendar, LayoutGrid, List, Table as TableIcon, Kanban, Clock, GanttChart, Settings, SlidersHorizontal, X, ChevronDown, ChevronLeft, ChevronRight, Copy, Trash2, GripVertical, Download, Upload, BellRing, Check } from 'lucide-react'
 import { Modal } from '@/components/ui/modal'
 import { cn } from '@/lib/utils'
 import { recordsToCsv, recordsToJson, parseCsv, parseCsvCell, mapCsvToRecords, downloadFile, slugify } from '@/lib/csvUtils'
+import { dayKey, todayKey, parseDueDate, findDateProp, findDoneProp, isRecordDone, dueStatus, groupReminders, dueLabelFor, type DueUrgency } from '@/lib/reminders'
+import { isDoneValue } from '@/lib/automation'
 
 // Virtualized table: above this many rows on the current page the table body
 // renders through react-window (fixed row height) instead of plain <tr>s.
@@ -337,7 +339,7 @@ export function DatabaseViews({ database, compact, hideSwitcher, initialViewType
       {viewType==='table' && <TableView database={database} records={paged} hiddenCols={hiddenCols} onHide={toggleHide} onOpenRecord={setOpenRecordId} onUpdate={updateRecord} onDelete={deleteRecord} onSort={(pid)=> setSort({ propertyId: pid, direction: sort?.direction==='asc' ? 'desc' : 'asc'})} />}
       {viewType==='board' && <BoardView database={database} records={paged} onUpdate={updateRecord} onOpenRecord={setOpenRecordId} />}
       {viewType==='gallery' && <GalleryView database={database} records={paged} onOpenRecord={setOpenRecordId} />}
-      {viewType==='calendar' && <CalendarView database={database} records={paged} />}
+      {viewType==='calendar' && <CalendarView database={database} records={filtered} onOpenRecord={setOpenRecordId} onUpdate={updateRecord} onCreate={(props)=> createRecord(database.id, props)} />}
       {viewType==='list' && <ListView database={database} records={paged} onOpenRecord={setOpenRecordId} />}
       {viewType==='timeline' && <TimelineView database={database} records={paged} />}
 
@@ -905,32 +907,319 @@ function GalleryView({ database, records, onOpenRecord }: { database: Database, 
   )
 }
 
-function CalendarView({ database, records }: { database: Database, records: DatabaseRecord[] }) {
-  const dateProp = database.properties.find(p=> p.type==='date')?.id
-  const days = Array.from({length: 30}, (_,i)=> {
-    const d = new Date(); d.setDate(d.getDate() -15 + i)
-    return d
+// Calendar as a reminders hub (not just a passive grid):
+// - Real month grid (prev / today / next, Monday-start) with urgency-colored chips.
+// - Agenda: Overdue / Due today / Next 7 days with counts; click jumps to the record.
+// - "Remind me" pushes overdue + today's items into the NotificationCenter inbox
+//   (once per database per day, gated by the Due-reminders automation rule).
+// - Click a day → day panel: toggle done inline, open records, quick-add a
+//   dated task with Enter.
+// Receives `filtered` (not the paginated page) so a reminder can never hide
+// behind pagination.
+function CalendarView({ database, records, onOpenRecord, onUpdate, onCreate }: {
+  database: Database
+  records: DatabaseRecord[]
+  onOpenRecord: (recordId: string) => void
+  onUpdate: (id: string, props: Record<string, unknown>) => void
+  onCreate: (props: Record<string, unknown>) => void
+}) {
+  const addProperty = useAppStore(s => s.addProperty)
+  const sendDueReminders = useAppStore(s => s.sendDueReminders)
+  const dateProp = findDateProp(database)
+  const doneProp = findDoneProp(database)
+  const titleProp = database.properties[0]?.id
+  const ref = todayKey()
+
+  const now = new Date()
+  const [month, setMonth] = useState({ y: now.getFullYear(), m: now.getMonth() })
+  const [selected, setSelected] = useState<string>(ref)
+  const [quickTitle, setQuickTitle] = useState('')
+  const [showAddDate, setShowAddDate] = useState(false)
+
+  const titleOf = (r: DatabaseRecord) => String(titleProp ? (r.properties[titleProp] ?? 'Untitled') : 'Untitled') || 'Untitled'
+
+  const toggleDone = (r: DatabaseRecord) => {
+    if (!doneProp) return
+    const prop = database.properties.find(p => p.id === doneProp)
+    const cur = r.properties[doneProp]
+    if (prop?.type === 'checkbox') {
+      onUpdate(r.id, { [doneProp]: !cur })
+    } else {
+      // status/select with a real "Done" option: flip Done <-> first open option.
+      const opts = prop?.options ?? []
+      const doneOpt = opts.find(o => isDoneValue(o))
+      if (!doneOpt) return
+      const openOpt = opts.find(o => !isDoneValue(o)) ?? ''
+      onUpdate(r.id, { [doneProp]: isDoneValue(cur) ? openOpt : doneOpt })
+    }
+  }
+
+  const byDay = useMemo(() => {
+    const m = new Map<string, DatabaseRecord[]>()
+    if (!dateProp) return m
+    for (const r of records) {
+      const k = parseDueDate(r.properties[dateProp])
+      if (!k) continue
+      const arr = m.get(k)
+      if (arr) arr.push(r)
+      else m.set(k, [r])
+    }
+    // Open first, done last, then title — stable per day.
+    for (const arr of m.values()) {
+      arr.sort((a, b) => {
+        const da = isRecordDone(a, database) ? 1 : 0
+        const dbDone = isRecordDone(b, database) ? 1 : 0
+        if (da !== dbDone) return da - dbDone
+        return titleOf(a).localeCompare(titleOf(b))
+      })
+    }
+    return m
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records, database, dateProp])
+
+  const groups = useMemo(() => groupReminders(records, database, ref), [records, database, ref])
+
+  // "Remind me" — once per database per day (localStorage marker), so the
+  // button can't spam the inbox. Rule/prefs gating happens in the store.
+  const remindedKey = `openmanas_due_reminded_v1`
+  const [remindedToday, setRemindedToday] = useState(() => {
+    try { return localStorage.getItem(remindedKey)?.split('|').includes(`${database.id}:${ref}`) ?? false } catch { return false }
   })
+  const [remindMsg, setRemindMsg] = useState<string | null>(null)
+  const sendReminders = () => {
+    const items = [...groups.overdue, ...groups.today].map(r => ({
+      databaseId: database.id,
+      recordId: r.id,
+      title: titleOf(r),
+      dueLabel: dueLabelFor(parseDueDate(r.properties[dateProp!]) ?? ref, ref),
+    }))
+    if (items.length === 0) { setRemindMsg('Nothing due — inbox stays quiet.'); return }
+    const n = sendDueReminders(items)
+    if (n > 0) {
+      try {
+        const raw = localStorage.getItem(remindedKey)
+        const set = new Set((raw ? raw.split('|') : []).filter(Boolean))
+        set.add(`${database.id}:${ref}`)
+        localStorage.setItem(remindedKey, [...set].slice(-50).join('|'))
+      } catch { /* marker is best-effort */ }
+      setRemindedToday(true)
+      setRemindMsg(`Sent ${n} reminder${n === 1 ? '' : 's'} to inbox.`)
+    } else {
+      setRemindMsg('Reminders are off (Automation rule or Tasks pref) — nothing sent.')
+    }
+  }
+
+  if (!dateProp) {
+    return (
+      <div className="py-10 px-4 text-center border rounded-2xl border-dashed bg-card space-y-3">
+        <div className="w-10 h-10 rounded-xl bg-amber-500/10 grid place-items-center mx-auto"><BellRing size={18} className="text-amber-600" /></div>
+        <div className="font-medium text-sm">Calendar needs a due date</div>
+        <div className="text-xs text-muted-foreground max-w-[380px] mx-auto">Add a <span className="font-mono">date</span> property and this view becomes a reminders hub — overdue, due-today and next-7-days agendas with inbox reminders.</div>
+        {!showAddDate ? (
+          <Button size="sm" onClick={() => setShowAddDate(true)}><Plus size={14} className="mr-1" /> Add date property</Button>
+        ) : (
+          <Button size="sm" onClick={() => { addProperty(database.id, { name: 'Due', type: 'date' }); setShowAddDate(false) }}>Add “Due” date property</Button>
+        )}
+      </div>
+    )
+  }
+
+  const monthLabel = new Date(month.y, month.m, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  const leadBlanks = (new Date(month.y, month.m, 1).getDay() + 6) % 7 // Monday-start
+  const daysInMonth = new Date(month.y, month.m + 1, 0).getDate()
+  const cells: (string | null)[] = [
+    ...Array.from({ length: leadBlanks }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => dayKey(new Date(month.y, month.m, i + 1))),
+  ]
+  const selectedItems = byDay.get(selected) ?? []
+
+  const quickAdd = () => {
+    const t = quickTitle.trim()
+    if (!t || !titleProp) return
+    onCreate({ [titleProp]: t, [dateProp]: selected })
+    setQuickTitle('')
+  }
+
+  const agendaCount = groups.overdue.length + groups.today.length + groups.upcoming.length
+
   return (
-    <div className="border rounded-2xl overflow-hidden bg-card p-3">
-      <div className="grid grid-cols-7 gap-2 text-xs">
-        {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=> <div key={d} className="text-muted-foreground font-medium p-2">{d}</div>)}
-        {days.map(d=> {
-          const dayRecords = dateProp ? records.filter(r=> String(r.properties[dateProp]).slice(0,10)===d.toISOString().slice(0,10)) : []
-          const isToday = d.toDateString()===new Date().toDateString()
-          return (
-            <div key={d.toISOString()} className={`min-h-[90px] rounded-xl border p-2 ${isToday ? 'bg-violet-500/10 border-violet-500/30' : 'bg-muted/20'}`}>
-              <div className={`text-xs font-medium w-6 h-6 grid place-items-center rounded-full ${isToday ? 'bg-violet-500 text-white' : ''}`}>{d.getDate()}</div>
-              <div className="space-y-1 mt-1">
-                {dayRecords.slice(0,2).map(r=> (
-                  <div key={r.id} className="text-[11px] bg-background border rounded-lg px-1.5 py-1 truncate">{String(r.properties[database.properties[0].id])}</div>
-                ))}
-              </div>
-            </div>
-          )
-        })}
+    <div className="space-y-3">
+      {/* Header: month nav + reminder pulse */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1">
+          <button onClick={() => setMonth(({ y, m }) => (m === 0 ? { y: y - 1, m: 11 } : { y, m: m - 1 }))} className="p-1.5 rounded-lg border bg-card hover:bg-accent" title="Previous month"><ChevronLeft size={14} /></button>
+          <button onClick={() => { const n = new Date(); setMonth({ y: n.getFullYear(), m: n.getMonth() }); setSelected(todayKey(n)) }} className="px-2.5 py-1.5 rounded-lg border bg-card hover:bg-accent text-xs font-medium">Today</button>
+          <button onClick={() => setMonth(({ y, m }) => (m === 11 ? { y: y + 1, m: 0 } : { y, m: m + 1 }))} className="p-1.5 rounded-lg border bg-card hover:bg-accent" title="Next month"><ChevronRight size={14} /></button>
+        </div>
+        <div className="font-semibold text-sm">{monthLabel}</div>
+        <div className="flex items-center gap-1.5 ml-auto">
+          {groups.overdue.length > 0 && <span className="text-[11px] font-semibold px-2 py-1 rounded-full bg-red-500/10 border border-red-500/30 text-red-600">Overdue • {groups.overdue.length}</span>}
+          {groups.today.length > 0 && <span className="text-[11px] font-semibold px-2 py-1 rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-700">Today • {groups.today.length}</span>}
+          {agendaCount === 0 && <span className="text-[11px] text-muted-foreground border rounded-full px-2 py-1">All clear — nothing due</span>}
+        </div>
+      </div>
+
+      {/* Agenda: the actual reminder list */}
+      {agendaCount > 0 && (
+        <div className="rounded-2xl border bg-card p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <BellRing size={14} className="text-violet-600" />
+            <span className="text-xs font-semibold">Reminders</span>
+            <span className="text-[11px] text-muted-foreground">overdue first, then today, then next 7 days</span>
+            <button
+              onClick={sendReminders}
+              disabled={remindedToday}
+              title={remindedToday ? 'Already sent today' : "Push overdue + today's items to the notification inbox"}
+              className="ml-auto text-[11px] font-medium border rounded-lg px-2 py-1 bg-violet-500 text-white hover:bg-violet-600 disabled:opacity-50 disabled:hover:bg-violet-500"
+            >
+              {remindedToday ? 'Sent ✓' : 'Remind me'}
+            </button>
+          </div>
+          {remindMsg && <div className="text-[11px] text-muted-foreground">{remindMsg}</div>}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <AgendaCol title="Overdue" tone="red" items={groups.overdue} titleOf={titleOf} dateProp={dateProp} refKey={ref} doneProp={doneProp} onToggle={toggleDone} onOpen={onOpenRecord} />
+            <AgendaCol title="Due today" tone="violet" items={groups.today} titleOf={titleOf} dateProp={dateProp} refKey={ref} doneProp={doneProp} onToggle={toggleDone} onOpen={onOpenRecord} />
+            <AgendaCol title="Next 7 days" tone="muted" items={groups.upcoming} titleOf={titleOf} dateProp={dateProp} refKey={ref} doneProp={doneProp} onToggle={toggleDone} onOpen={onOpenRecord} />
+          </div>
+        </div>
+      )}
+
+      {/* Month grid */}
+      <div className="border rounded-2xl overflow-hidden bg-card p-2 sm:p-3">
+        <div className="grid grid-cols-7 gap-1 sm:gap-1.5 text-xs">
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => <div key={d} className="text-muted-foreground font-medium p-1.5 text-center">{d}</div>)}
+          {cells.map((k, i) => {
+            if (!k) return <div key={`blank-${i}`} />
+            const items = byDay.get(k) ?? []
+            const isToday = k === ref
+            const isSel = k === selected
+            const hasOverdue = items.some(r => dueStatus(r, database, ref, dateProp) === 'overdue')
+            const dayNum = Number(k.slice(8, 10))
+            return (
+              <button
+                key={k}
+                onClick={() => setSelected(k)}
+                className={`min-h-[76px] sm:min-h-[92px] rounded-xl border p-1.5 text-left transition-colors ${isSel ? 'border-violet-500 ring-1 ring-violet-500/40 bg-violet-500/5' : isToday ? 'bg-violet-500/10 border-violet-500/30' : 'bg-muted/20 hover:bg-muted/40'}`}
+              >
+                <div className="flex items-center gap-1">
+                  <span className={`text-[11px] font-medium w-5 h-5 grid place-items-center rounded-full shrink-0 ${isToday ? 'bg-violet-500 text-white' : ''}`}>{dayNum}</span>
+                  {hasOverdue && <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" title="Overdue item" />}
+                  {items.length > 0 && <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">{items.length}</span>}
+                </div>
+                <div className="space-y-1 mt-1">
+                  {items.slice(0, 3).map(r => (
+                    <DayChip key={r.id} record={r} database={database} dateProp={dateProp} refKey={ref} title={titleOf(r)} onOpen={onOpenRecord} />
+                  ))}
+                  {items.length > 3 && <div className="text-[10px] text-muted-foreground px-1">+{items.length - 3} more</div>}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Selected-day panel: work the day's list + quick-add */}
+      <div className="rounded-2xl border bg-card p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold">
+            {new Date(`${selected}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+            {selected === ref && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500 text-white align-middle">TODAY</span>}
+          </span>
+          <span className="text-[11px] text-muted-foreground">{selectedItems.length} item{selectedItems.length === 1 ? '' : 's'}</span>
+        </div>
+        {selectedItems.length === 0 ? (
+          <div className="text-xs text-muted-foreground py-2">Nothing scheduled — type below and hit Enter to add a dated reminder.</div>
+        ) : (
+          <div className="space-y-1">
+            {selectedItems.map(r => {
+              const done = isRecordDone(r, database)
+              const urg = dueStatus(r, database, ref, dateProp)
+              return (
+                <div key={r.id} className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-accent/50">
+                  {doneProp ? (
+                    <button onClick={() => toggleDone(r)} title={done ? 'Mark not done' : 'Mark done'} className={`w-4 h-4 rounded border grid place-items-center shrink-0 ${done ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-background hover:border-emerald-500'}`}>
+                      {done && <Check size={11} />}
+                    </button>
+                  ) : <span className={`w-2 h-2 rounded-full shrink-0 ${urg === 'overdue' ? 'bg-red-500' : urg === 'today' ? 'bg-violet-500' : 'bg-muted-foreground/40'}`} />}
+                  <button onClick={() => onOpenRecord(r.id)} className={`flex-1 min-w-0 text-left text-[13px] truncate ${done ? 'line-through text-muted-foreground' : 'font-medium'}`}>{titleOf(r)}</button>
+                  {urg === 'overdue' && !done && <span className="text-[10px] font-semibold text-red-600 shrink-0">{dueLabelFor(selected, ref)}</span>}
+                </div>
+              )
+            })}
+          </div>
+        )}
+        <div className="flex gap-2 pt-1">
+          <input
+            value={quickTitle}
+            onChange={e => setQuickTitle(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') quickAdd() }}
+            placeholder={`Add reminder for ${new Date(`${selected}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}…`}
+            className="flex-1 h-8 rounded-xl border bg-background px-3 text-[13px] outline-none focus:border-violet-500"
+          />
+          <Button size="sm" disabled={!quickTitle.trim()} onClick={quickAdd}><Plus size={14} className="mr-1" /> Add</Button>
+        </div>
       </div>
     </div>
+  )
+}
+
+function AgendaCol({ title, tone, items, titleOf, dateProp, refKey, doneProp, onToggle, onOpen }: {
+  title: string
+  tone: 'red' | 'violet' | 'muted'
+  items: DatabaseRecord[]
+  titleOf: (r: DatabaseRecord) => string
+  dateProp: string
+  refKey: string
+  doneProp?: string
+  onToggle: (r: DatabaseRecord) => void
+  onOpen: (recordId: string) => void
+}) {
+  const toneCls = tone === 'red' ? 'text-red-600' : tone === 'violet' ? 'text-violet-700' : 'text-muted-foreground'
+  return (
+    <div className="rounded-xl border bg-muted/20 p-2 space-y-1 min-w-0">
+      <div className={`text-[11px] font-semibold ${toneCls}`}>{title} • {items.length}</div>
+      {items.length === 0 && <div className="text-[11px] text-muted-foreground py-1">—</div>}
+      {items.slice(0, 5).map(r => (
+        <div key={r.id} className="flex items-center gap-1.5 text-xs bg-background border rounded-lg px-1.5 py-1 min-w-0">
+          {doneProp ? (
+            <button onClick={() => onToggle(r)} title="Mark done" className="w-3.5 h-3.5 rounded border grid place-items-center shrink-0 bg-background hover:border-emerald-500 hover:text-emerald-600 text-transparent">
+              <Check size={10} />
+            </button>
+          ) : null}
+          <button onClick={() => onOpen(r.id)} className="flex-1 min-w-0 truncate text-left font-medium hover:underline">{titleOf(r)}</button>
+          <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">{dueLabelFor(parseDueDate(r.properties[dateProp]) ?? refKey, refKey).replace('due ', '')}</span>
+        </div>
+      ))}
+      {items.length > 5 && <div className="text-[10px] text-muted-foreground px-1">+{items.length - 5} more in grid</div>}
+    </div>
+  )
+}
+
+function DayChip({ record, database, dateProp, refKey, title, onOpen }: {
+  record: DatabaseRecord
+  database: Database
+  dateProp: string
+  refKey: string
+  title: string
+  onOpen: (recordId: string) => void
+}) {
+  const done = isRecordDone(record, database)
+  const urg: DueUrgency = dueStatus(record, database, refKey, dateProp)
+  return (
+    <button
+      onClick={e => { e.stopPropagation(); onOpen(record.id) }}
+      title={title}
+      className={`w-full text-[10px] sm:text-[11px] border rounded-lg px-1.5 py-0.5 truncate text-left transition-colors ${done
+        ? 'bg-transparent opacity-50 line-through text-muted-foreground'
+        : urg === 'overdue'
+          ? 'bg-red-500/10 border-red-500/40 text-red-700 hover:bg-red-500/20 font-medium'
+          : urg === 'today'
+            ? 'bg-violet-500/10 border-violet-500/40 text-violet-800 hover:bg-violet-500/20 font-medium'
+            : 'bg-background hover:bg-accent'
+        }`}
+    >
+      {title}
+    </button>
   )
 }
 

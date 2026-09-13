@@ -32,7 +32,8 @@ describe('automation helpers', () => {
   })
 
   it('loads defaults when storage is empty', () => {
-    expect(loadAutomationRules().length).toBe(5)
+    expect(loadAutomationRules().length).toBe(DEFAULT_AUTOMATION_RULES.length)
+    expect(DEFAULT_AUTOMATION_RULES.map(r => r.id)).toContain('due_reminder')
   })
 })
 

@@ -9,7 +9,7 @@ import { storageService } from '@/lib/storageService'
 import { loadSession, saveSession, clearSession, signInRequest, signUpRequest, fetchMe, ApiError } from '@/lib/api'
 import { migrateStateIds } from '@/lib/ids'
 import type { SyncStatus } from '@/lib/sync'
-import { buildNotificationsForEvent, isDoneTransition, loadAutomationRules, parseMentions, type AutomationEvent } from '@/lib/automation'
+import { buildNotificationsForEvent, isDoneTransition, loadAutomationRules, parseMentions, type AutomationEvent, type NotificationDraft } from '@/lib/automation'
 import { loadVersions, saveVersions, buildVersion, nextVersionNumber, appendVersion, snapshotsEqual, AUTO_CAPTURE_MIN_MS, type VersionMap } from '@/lib/versions'
 import {
   onSyncStatus, queuePush, pushNow,
@@ -103,22 +103,30 @@ function maybeAutoCapture(pageId: string) {
   } catch { /* versioning never breaks editing */ }
 }
 
+/** Stamp drafts (id/userId/createdAt) + prepend to the inbox (cap 100). Shared by
+ *  the automation bus and UI-initiated sends (Calendar due reminders). */
+function commitNotifications(drafts: NotificationDraft[]): Notification[] {
+  if (drafts.length === 0) return []
+  const s = useAppStore.getState()
+  const now = new Date().toISOString()
+  const notifs: Notification[] = drafts.map((d) => ({
+    id: uid(), userId: s.user.id, read: false, createdAt: now,
+    type: d.type, title: d.title.slice(0, 140), body: d.body?.slice(0, 500), link: d.link,
+  }))
+  useAppStore.setState((st) => ({ notifications: [...notifs, ...st.notifications].slice(0, 100) }))
+  persist(useAppStore.getState())
+  // Slice 4: persist the inbox server-side so it survives across devices.
+  // userId is stamped from auth; fire-and-forget so the bus never breaks.
+  if (serverMode()) for (const n of notifs) pushNow(() => postNotification(n))
+  return notifs
+}
+
 /** Automation bus: event → notifications (prefs + rule toggles gate delivery). */
 function emitAutomation(event: AutomationEvent) {
   try {
     const s = useAppStore.getState()
     const drafts = buildNotificationsForEvent(event, s.settings?.notifications, loadAutomationRules())
-    if (drafts.length === 0) return
-    const now = new Date().toISOString()
-    const notifs: Notification[] = drafts.map((d) => ({
-      id: uid(), userId: s.user.id, read: false, createdAt: now,
-      type: d.type, title: d.title.slice(0, 140), body: d.body?.slice(0, 500), link: d.link,
-    }))
-    useAppStore.setState((st) => ({ notifications: [...notifs, ...st.notifications].slice(0, 100) }))
-    persist(useAppStore.getState())
-    // Slice 4: persist the inbox server-side so it survives across devices.
-    // userId is stamped from auth; fire-and-forget so the bus never breaks.
-    if (serverMode()) for (const n of notifs) pushNow(() => postNotification(n))
+    commitNotifications(drafts)
   } catch { /* bus never breaks mutations */ }
 }
 
@@ -156,6 +164,9 @@ interface AppState {
   updateSettings: (patch: Partial<Omit<AppSettings, 'editor' | 'databases' | 'notifications' | 'collaboration'>> & { editor?: Partial<AppSettings['editor']>, databases?: Partial<AppSettings['databases']>, notifications?: Partial<AppSettings['notifications']>, collaboration?: Partial<AppSettings['collaboration']> }) => void
   markNotificationRead: (id: string) => void
   markAllNotificationsRead: () => void
+  /** Calendar "Remind me": send due-date reminders to the inbox. Gated by the
+   *  `due_reminder` automation rule + Tasks notification pref. Returns # sent. */
+  sendDueReminders: (items: { databaseId: string; recordId: string; title: string; dueLabel: string }[]) => number
   emptyTrash: () => number
   createPage: (title: string, parentId?: string | null, icon?: string) => Page
   createPageFromTemplate: (templateName: string, parentId?: string | null) => Page
@@ -666,6 +677,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(s => ({ notifications: s.notifications.map(n => ({ ...n, read: true })) }))
     persist(get())
     if (serverMode()) for (const n of unread) queuePush(`notif:${n.id}`, () => patchNotificationRemote(n.id, true))
+  },
+  sendDueReminders: (items) => {
+    try {
+      const s = get()
+      const rules = loadAutomationRules()
+      const drafts: NotificationDraft[] = []
+      for (const it of items) {
+        drafts.push(
+          ...buildNotificationsForEvent(
+            { type: 'due_reminder', actorId: s.user.id, databaseId: it.databaseId, recordId: it.recordId, title: it.title, dueLabel: it.dueLabel },
+            s.settings?.notifications,
+            rules,
+          ),
+        )
+      }
+      return commitNotifications(drafts).length
+    } catch { return 0 }
   },
   emptyTrash: () => {
     const trashed = get().pages.filter(p => p.isTrashed)
