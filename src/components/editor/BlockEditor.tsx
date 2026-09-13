@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useAppStore } from '@/stores/appStore'
 import { BlockRegistry, detectMarkdownShortcut, stripMarkdownPrefix } from '@/lib/blockRegistry'
 import type { Block } from '@/lib/types'
-import { GripVertical, Plus, Trash2, Copy, Palette, MessageSquare, ArrowUp, ArrowDown, Image as ImageIcon, Code, Quote, Table as TableIcon, Bookmark, ChevronDown, Timer, Repeat2, BarChart3, Calendar, CheckSquare, Hash, Type, MoreHorizontal, Settings, SlidersHorizontal, Undo2, Redo2 } from 'lucide-react'
+import { GripVertical, Plus, Trash2, Copy, Palette, MessageSquare, ArrowUp, ArrowDown, Image as ImageIcon, Code, Quote, Table as TableIcon, Bookmark, ChevronDown, Timer, Repeat2, BarChart3, Calendar, CheckSquare, Hash, Type, MoreHorizontal, Settings, SlidersHorizontal, Undo2, Redo2, Kanban, LayoutGrid, List, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Modal } from '@/components/ui/modal'
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,17 @@ import { resolveEmbedFilter, resolveEmbedSort, hasEmbedOverrides } from '@/lib/d
 import { acceptMatches } from '@/lib/fileRefs'
 import { previewUrl, kindOf, MAX_FILE_SIZE } from '@/components/features/FileManager'
 import { BookmarkBlockView } from './BookmarkCard'
+
+// The 6 database views a linked-DB embed can show — one at a time.
+// Step 1 picks the database, Step 2 picks exactly one of these.
+const EMBED_VIEWS = [
+  { type: 'table', label: 'Table', Icon: TableIcon },
+  { type: 'board', label: 'Board', Icon: Kanban },
+  { type: 'gallery', label: 'Gallery', Icon: LayoutGrid },
+  { type: 'calendar', label: 'Calendar', Icon: Calendar },
+  { type: 'list', label: 'List', Icon: List },
+  { type: 'timeline', label: 'Timeline', Icon: Clock },
+] as const
 
 export function BlockEditor({ pageId }: { pageId: string }) {
   const { blocks, addBlock, updateBlock, deleteBlock, moveBlock, duplicateBlock } = useAppStore()
@@ -854,6 +865,13 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
   }
 
   if (block.type==='page_embed' || block.type==='database_embed' || block.type==='relation' || block.type==='mention') {
+    const isDbEmbed = block.type==='database_embed'
+    const dbChosen = isDbEmbed && !!block.content
+    const viewChosen = isDbEmbed && !!(block.properties as any)?.viewType
+    // Picker collapses once BOTH steps are done — after that the block shows
+    // only the selected database view (plus a discreet Change toggle in the
+    // embed header). Switching source resets Step 2 so a view is picked per DB.
+    const showDbPicker = !isDbEmbed || !dbChosen || !viewChosen
     return (
       <div className={cn("group relative rounded-xl px-1 py-2 hover:bg-accent/30", dragId===block.id && "opacity-50")}
         draggable onDragStart={()=> setDragId(block.id)} onDragEnd={()=> setDragId(null)} onDragOver={e=> e.preventDefault()} onDrop={()=> dragId && dragId!==block.id && onDrop(dragId, block.id)}
@@ -861,18 +879,46 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         {renderDragMenu()}
         {renderCommentHover()}
         <div className="w-full">
+          {showDbPicker && (
           <div className="p-3 rounded-xl border bg-violet-500/10 flex items-center gap-3">
             <span className="w-8 h-8 rounded-lg bg-card border grid place-items-center text-sm">{block.type==='page_embed' ? '📄' : block.type==='database_embed' ? '▦' : '@'}</span>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div className="text-sm font-medium capitalize">{block.type.replace('_',' ')}</div>
-              <select value={block.content} onChange={e=> onChange({ content:e.target.value })} className="mt-1 w-full text-xs border rounded-lg px-2 py-1 bg-background text-foreground">
+              <div className="text-[11px] text-muted-foreground mt-0.5">Step 1 — pick a {block.type.includes('page') ? 'page' : block.type.includes('database') ? 'database' : 'item'}</div>
+              <select
+                value={block.content}
+                onChange={e=> {
+                  const val = e.target.value
+                  if (isDbEmbed) onChange({ content: val, properties: { ...block.properties, viewType: undefined } as any })
+                  else onChange({ content: val })
+                }}
+                className="mt-1 w-full text-xs border rounded-lg px-2 py-1 bg-background text-foreground"
+              >
                 <option value="">Select {block.type.includes('page') ? 'page' : block.type.includes('database') ? 'database' : 'item'}</option>
                 {(block.type==='page_embed' ? pages : block.type==='database_embed' ? databases : []).map((p:any)=> <option key={p.id} value={p.id}>{p.title || p.name}</option>)}
               </select>
+              {isDbEmbed && dbChosen && !viewChosen && (
+                <div className="mt-2">
+                  <div className="text-[11px] text-muted-foreground">Step 2 — pick one view to show</div>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 mt-1.5">
+                    {EMBED_VIEWS.map(({ type, label, Icon }) => (
+                        <button
+                          key={type}
+                          onClick={()=> onChange({ properties: { ...block.properties, viewType: type } as any })}
+                          title={`Show as ${label}`}
+                          className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg border text-[11px] font-medium capitalize transition-colors bg-background hover:bg-accent"
+                        >
+                          <Icon size={13} /> {label}
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-            <div ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} onMouseUp={handleMouseUp} data-placeholder="Optional note..." className="mt-2 text-xs outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground" />
-            {block.type==='database_embed' && block.content && <DatabaseEmbedCard block={block} onChange={onChange} />}
+          )}
+            {block.type==='database_embed' && dbChosen && viewChosen && <DatabaseEmbedCard block={block} onChange={onChange} />}
             {block.type==='page_embed' && block.content && (()=> { const pg:any = pages.find((p:any)=> p.id===block.content); return pg ? <div className="mt-3 p-3 rounded-xl border bg-card"><div className="text-sm font-medium flex items-center gap-1.5"><PageIconInline page={pg} /> {pg.title}</div><div className="text-xs text-muted-foreground line-clamp-2">{pg.description||'Page preview'}</div><button onClick={()=> useAppStore.getState().setSelectedPage(pg.id)} className="mt-2 text-xs text-violet-600 hover:underline">Open →</button></div> : null })()}
           </div>
         {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
@@ -958,18 +1004,27 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
   )
 }
 
-// Linked database embed card — per-embed view/filter/sort overrides live in
-// block.properties (viewType/embedFilter/embedSort, blocks.properties JSONB in
-// Postgres — no migration needed) and apply only when Settings → Databases →
+// Linked database embed — shows ONLY the selected database in the one chosen
+// view (tab bar hidden via hideSwitcher). The Step 1/Step 2 picker lives in the
+// block above and collapses once both are picked; to change source/view later,
+// use the discreet "Change" toggle in the header. viewType lives in
+// block.properties (blocks.properties JSONB in Postgres — no migration needed).
+// Per-embed filter/sort overrides still apply only when Settings → Databases →
 // linked embeds is on. Clearing an override falls back to the database view.
 function DatabaseEmbedCard({ block, onChange }: { block: Block, onChange:(p:Partial<Block>)=>void }) {
   const databases = useAppStore(s => s.databases)
   const linkedOn = useAppStore(s => s.settings?.databases?.linkedEmbeds ?? false)
+  const [showSettings, setShowSettings] = useState(false)
   const [showFilter, setShowFilter] = useState(false)
   const [showSort, setShowSort] = useState(false)
   const db: any = databases.find((d: any) => d.id === block.content)
   if (!db) return null
-  const embedView = (block.properties as any)?.viewType as any
+  const rawView = (block.properties as any)?.viewType as string | undefined
+  const validViews = EMBED_VIEWS.map(v => v.type) as readonly string[]
+  // Single chosen view: explicit Step 2 pick wins, otherwise the database's
+  // own first view (old blocks without viewType keep working).
+  const effectiveView = (rawView && (validViews as readonly string[]).includes(rawView) ? rawView : (db.views?.[0]?.type || 'table')) as typeof EMBED_VIEWS[number]['type']
+  const viewLabel = EMBED_VIEWS.find(v => v.type === effectiveView)?.label ?? effectiveView
   const embedFilter = resolveEmbedFilter(linkedOn, block.properties as any)
   const embedSort = resolveEmbedSort(linkedOn, block.properties as any)
   const custom = hasEmbedOverrides(linkedOn, block.properties as any)
@@ -977,29 +1032,57 @@ function DatabaseEmbedCard({ block, onChange }: { block: Block, onChange:(p:Part
   return (
     <div className="mt-3 border rounded-xl overflow-hidden bg-card shadow-sm">
       <div className="p-2.5 bg-muted/40 border-b text-xs font-medium flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2 min-w-0">▦ <span className="truncate">{db.name} — inline</span></span>
+        <span className="flex items-center gap-2 min-w-0">▦ <span className="truncate">{db.name} — {viewLabel}</span></span>
         <span className="flex items-center gap-1.5 shrink-0">
           {custom && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-700" title="This embed has its own filter/sort">Custom</span>}
-          {linkedOn ? (
-            <>
-              <select aria-label="Embed view" value={embedView || ''} onChange={e=> setProps({ viewType: e.target.value || undefined })} className="text-[11px] border rounded-lg px-1.5 py-1 bg-background">
-                <option value="">Auto</option>
-                {(['table','board','gallery','calendar','list','timeline'] as const).map(t=> <option key={t} value={t}>{t}</option>)}
-              </select>
-              <button onClick={()=> setShowFilter(true)} className={`text-[11px] border rounded-lg px-1.5 py-1 ${embedFilter ? 'bg-amber-500/15 border-amber-500/40' : 'bg-background'}`} title={embedFilter ? `Embed filter: ${embedFilter.conditions.length} condition(s) — click to edit` : 'Filter just this embed'}>Filter{embedFilter ? `•${embedFilter.conditions.length}` : ''}</button>
-              <button onClick={()=> setShowSort(true)} className={`text-[11px] border rounded-lg px-1.5 py-1 ${embedSort ? 'bg-amber-500/15 border-amber-500/40' : 'bg-background'}`} title={embedSort ? 'Embed sort — click to edit' : 'Sort just this embed'}>Sort{embedSort ? '•1' : ''}</button>
-            </>
-          ) : null}
+          <button onClick={()=> setShowSettings(v => !v)} title="Change database or view" className="text-[11px] border rounded-lg px-1.5 py-1 bg-background hover:bg-accent">
+            {showSettings ? 'Done' : 'Change'}
+          </button>
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500 text-white">LIVE</span>
         </span>
       </div>
+      {showSettings && (
+        <div className="p-3 border-b bg-violet-500/5 space-y-2">
+          <div>
+            <div className="text-[11px] text-muted-foreground">Source database</div>
+            <select value={block.content} onChange={e=> onChange({ content: e.target.value, properties: { ...block.properties, viewType: undefined } as any })} className="mt-1 w-full text-xs border rounded-lg px-2 py-1 bg-background text-foreground">
+              {(databases as any[]).map((d:any)=> <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className="text-[11px] text-muted-foreground">View</div>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 mt-1.5">
+              {EMBED_VIEWS.map(({ type, label, Icon }) => (
+                <button
+                  key={type}
+                  onClick={()=> setProps({ viewType: type })}
+                  title={`Show as ${label}`}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg border text-[11px] font-medium capitalize transition-colors",
+                    effectiveView === type ? "bg-violet-500 text-white border-violet-500 shadow-sm" : "bg-background hover:bg-accent"
+                  )}
+                >
+                  <Icon size={13} /> {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {linkedOn && (
+            <div className="flex items-center gap-1.5">
+              <button onClick={()=> setShowFilter(true)} className={`text-[11px] border rounded-lg px-1.5 py-1 ${embedFilter ? 'bg-amber-500/15 border-amber-500/40' : 'bg-background'}`} title={embedFilter ? `Embed filter: ${embedFilter.conditions.length} condition(s) — click to edit` : 'Filter just this embed'}>Filter{embedFilter ? `•${embedFilter.conditions.length}` : ''}</button>
+              <button onClick={()=> setShowSort(true)} className={`text-[11px] border rounded-lg px-1.5 py-1 ${embedSort ? 'bg-amber-500/15 border-amber-500/40' : 'bg-background'}`} title={embedSort ? 'Embed sort — click to edit' : 'Sort just this embed'}>Sort{embedSort ? '•1' : ''}</button>
+            </div>
+          )}
+        </div>
+      )}
       <div className="max-h-[480px] overflow-auto">
         <DatabaseViews
           key={`${db.id}:${linkedOn ? 'linked' : 'plain'}`}
           database={db}
           compact
-          initialViewType={linkedOn ? embedView || undefined : undefined}
-          onViewTypeChange={linkedOn ? (t)=> setProps({ viewType: t }) : undefined}
+          hideSwitcher
+          initialViewType={effectiveView}
+          onViewTypeChange={(t)=> setProps({ viewType: t })}
           initialFilter={embedFilter}
           onFilterChange={linkedOn ? (g)=> setProps({ embedFilter: g }) : undefined}
           initialSort={embedSort ?? null}
@@ -1033,7 +1116,7 @@ function BlockActions({ block, onChange, onDuplicate, onDelete, onMove, onColor,
           {turnOpen && (
             <div className="absolute left-0 top-full mt-1 w-[200px] bg-popover border rounded-xl shadow-xl p-1 z-30 max-h-[240px] overflow-auto">
               <div className="px-2 py-1 text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">Turn into</div>
-              {BlockRegistry.all().slice(0,20).map(b=> (
+              {BlockRegistry.all().slice(0,30).map(b=> (
                 <button key={b.type} onClick={()=> { onTurnInto(b.type); setTurnOpen(false)}} className={`w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center gap-2 ${currentType===b.type ? 'bg-accent font-medium' : 'hover:bg-accent'}`}>
                   <span className="w-6 h-6 rounded bg-muted grid place-items-center text-[10px]">{b.slash.icon}</span>{b.label}
                 </button>
@@ -1718,8 +1801,8 @@ function SlashMenu({ query, onSelect, onClose }: { query:string, onSelect:(t:str
   useEffect(()=> setIdx(0), [query])
   return (
     <div className="absolute left-0 top-full mt-2 w-[340px] bg-popover border rounded-2xl shadow-xl p-2 z-20 max-h-[360px] overflow-auto">
-      <div className="px-2 py-1 text-[11px] font-semibold tracking-widest text-muted-foreground uppercase">Slash commands — {filtered.length} {filtered.length>20 ? '(showing 20)' : ''}</div>
-      {filtered.slice(0,20).map((c,i)=> (
+      <div className="px-2 py-1 text-[11px] font-semibold tracking-widest text-muted-foreground uppercase">Slash commands — {filtered.length} {filtered.length>30 ? '(showing 30)' : ''}</div>
+      {filtered.slice(0,30).map((c,i)=> (
         <button key={c.id} onMouseDown={e=>{e.preventDefault(); onSelect(c.blockType)}} className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left ${i===idx ? 'bg-accent' : 'hover:bg-accent'}`}>
           <span className="w-8 h-8 rounded-lg bg-muted grid place-items-center text-xs font-mono">{c.icon}</span>
           <span className="flex-1">

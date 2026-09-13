@@ -20,9 +20,13 @@ const VIRTUALIZE_AFTER = 100
 const VIRTUAL_ROW_H = 52
 const VIRTUAL_VIEW_H = 480
 
-export function DatabaseViews({ database, compact, initialViewType, onViewTypeChange, initialFilter, onFilterChange, initialSort, onSortChange }: {
+export function DatabaseViews({ database, compact, hideSwitcher, initialViewType, onViewTypeChange, initialFilter, onFilterChange, initialSort, onSortChange }: {
   database: Database
   compact?: boolean
+  // Embed single-view mode: hides the all-views tab bar inside the block.
+  // The parent (embed header / Step 2 picker) owns the one visible view via
+  // initialViewType + onViewTypeChange.
+  hideSwitcher?: boolean
   initialViewType?: Database['views'][number]['type']
   onViewTypeChange?: (t: Database['views'][number]['type']) => void
   // Per-embed overrides (linked DB): when the callbacks are provided the parent
@@ -38,11 +42,13 @@ export function DatabaseViews({ database, compact, initialViewType, onViewTypeCh
   const preferredInitial = initialViewType ?? (database.views.some(v => v.type === settingsDefault) ? settingsDefault : (database.views[0]?.type || settingsDefault))
   const [viewType, setViewType] = useState(preferredInitial)
   // per-embed override (linked DB): follow block prop, reset when switching databases
+  // Also follows view changes from the embed header / Step 2 picker, which is
+  // the sole switcher when hideSwitcher is on (no inner tab bar to call changeView).
   useEffect(() => {
     const next = initialViewType ?? (database.views.some(v => v.type === (useAppStore.getState().settings?.databases?.defaultView ?? 'table')) ? useAppStore.getState().settings.databases.defaultView : (database.views[0]?.type || 'table'))
     setViewType(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [database.id])
+  }, [database.id, initialViewType])
   const changeView = (t: typeof viewType) => { setViewType(t); onViewTypeChange?.(t) }
   const view = database.views.find(v=> v.type===viewType) || database.views[0]
   const [filterQ, setFilterQ] = useState('')
@@ -194,6 +200,7 @@ export function DatabaseViews({ database, compact, initialViewType, onViewTypeCh
   return (
     <div className={cn("space-y-3 w-full max-w-full", compact && "space-y-2")}>
       <div className={cn("flex flex-wrap items-center gap-2 w-full max-w-full relative", compact && "gap-1 px-1")}>
+        {!hideSwitcher && (
         <div className={cn("flex items-center gap-1 p-1 rounded-xl border bg-muted/20 overflow-auto flex-1 max-w-full", compact && "p-0.5")}>
           {(['table','board','gallery','calendar','list','timeline'] as const).map(t=> (
             <button key={t} onClick={()=> changeView(t as any)} className={cn(`px-3 py-1.5 rounded-lg text-xs font-medium capitalize flex items-center gap-1.5 shrink-0 ${viewType===t ? 'bg-background shadow border' : 'hover:bg-accent'}`, compact && "px-2 py-1 text-[11px]")}>
@@ -207,6 +214,7 @@ export function DatabaseViews({ database, compact, initialViewType, onViewTypeCh
             </button>
           ))}
         </div>
+        )}
         <div className="flex items-center gap-1.5 ml-auto shrink-0">
           {(filterGroup || sort || hiddenCols.size>0) && (
             <span className="hidden sm:inline-flex items-center gap-1 text-[11px] bg-amber-500/10 border border-amber-500/20 rounded-full px-2 py-1">
