@@ -22,6 +22,7 @@ import { acceptMatches } from '@/lib/fileRefs'
 import { previewUrl, kindOf, MAX_FILE_SIZE } from '@/components/features/FileManager'
 import { BookmarkBlockView } from './BookmarkCard'
 import { ChartBlockView } from './ChartBlock'
+import { defaultChartData } from '@/lib/charts'
 
 // The 6 database views a linked-DB embed can show — one at a time.
 // Step 1 picks the database, Step 2 picks exactly one of these.
@@ -57,7 +58,11 @@ export function BlockEditor({ pageId }: { pageId: string }) {
   const [dragId, setDragId] = useState<string | null>(null)
 
   const handleNew = (pos?: number, type:string='paragraph') => {
-    const b = addBlock(pageId, type as any, '', pos)
+    // New charts start with valid starter JSON (not '') so the very first
+    // POST already carries the chart — even if every later PATCH were lost,
+    // a reload still renders a chart instead of dropping the block.
+    const initial = type === 'chart' ? JSON.stringify(defaultChartData()) : ''
+    const b = addBlock(pageId, type as any, initial, pos)
     setTimeout(()=> document.getElementById(`block-${b.id}`)?.focus(), 30)
   }
 
@@ -345,7 +350,12 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
     }
   }
   const handleSlashSelect = (newType: string) => {
-    onChange({ type: newType as any, content: '' })
+    // Slash / turn-into a chart seeds starter JSON in the same patch as the
+    // type flip (updateBlock persists+pushes type changes synchronously, so
+    // the chart survives even an instant reload).
+    onChange(newType === 'chart'
+      ? { type: newType as any, content: JSON.stringify(defaultChartData()) }
+      : { type: newType as any, content: '' })
     closeSlash()
     setTimeout(()=> {
       if (contentRef.current) {

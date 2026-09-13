@@ -846,10 +846,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     const pageId = prev?.pageId
     set(s=> ({ blocks: s.blocks.map(b=> b.id===id?{...b, ...patch, updatedAt: new Date().toISOString()}:b)}))
     // Text typing stays on the debounced autosave (400ms) + debounced push
-    // (1000ms) via the store subscription below. Bookmark edits are discrete
-    // (Add/Done button, one click) — persist + push them synchronously so a
-    // fast reload can't lose the link while the debounces are still pending.
-    if (prev?.type === 'bookmark') {
+    // (1000ms) via the store subscription below. Widget edits are discrete
+    // (bookmark Add/Done, chart data/type controls, slash turn-into) —
+    // persist + push them synchronously so a fast reload can't lose the
+    // block while the debounces are still pending. Without this, server
+    // mode loses the change twice: localStorage still holds the old value
+    // when the tab closes, and the boot pull then overwrites it with the
+    // stale server copy — the chart "disappears" on reload.
+    const discrete =
+      prev?.type === 'bookmark' ||
+      prev?.type === 'chart' ||
+      (patch as Partial<Block>).type !== undefined
+    if (discrete) {
       persist(get())
       if (serverMode()) pushNow(() => patchBlock(id, patch))
     } else {

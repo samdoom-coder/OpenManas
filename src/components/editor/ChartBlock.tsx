@@ -3,7 +3,7 @@
 // no bundle cost. Data persists as JSON in `block.content` (see lib/charts.ts).
 // `ChartSvg` is the pure read-only renderer, reused by SharedPage.
 
-import { useState, useEffect, useId } from 'react'
+import { useState, useEffect, useId, useRef } from 'react'
 import { BarChart3, LineChart, PieChart, Donut, Plus, Trash2, TableProperties } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -32,8 +32,18 @@ export function fmtNum(n: number): string {
 export function ChartBlockView({ content, onChange }: { content: string; onChange: (json: string) => void }) {
   const [data, setData] = useState<ChartData>(() => parseChartContent(content))
   const [editing, setEditing] = useState(true)
+  const mounted = useRef(false)
   // Persist every edit (same fire-and-remember pattern as TableBlock).
-  useEffect(() => { onChange(JSON.stringify(data)) }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Skipped on first mount when content is already saved, so a reload (or a
+  // server pull remount) doesn't fire a spurious PATCH that could clobber
+  // newer state. An empty block still seeds its starter data once.
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true
+      if (content && content.trim()) return
+    }
+    onChange(JSON.stringify(data))
+  }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const stats = chartStats(data)
   const setType = (type: ChartType) => setData(d => ({ ...d, type }))
