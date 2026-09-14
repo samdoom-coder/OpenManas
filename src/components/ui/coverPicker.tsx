@@ -99,7 +99,7 @@ export function CoverPicker({
   }
 
   return (
-    <div className="w-[320px] overflow-hidden rounded-2xl border bg-popover text-popover-foreground shadow-xl">
+    <div className="w-[calc(100vw-2rem)] max-w-[320px] sm:w-[320px] overflow-hidden rounded-2xl border bg-popover text-popover-foreground shadow-xl">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <span className="text-xs font-semibold">Cover</span>
         <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-accent" aria-label="Close">

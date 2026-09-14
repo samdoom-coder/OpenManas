@@ -46,10 +46,53 @@
 
 @layer base {
   * { @apply border-border; }
-  body { @apply bg-background text-foreground antialiased; font-family: 'Inter', system-ui, sans-serif; }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+    overflow-x: clip;
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* Prevent iOS auto-zoom on inputs: keep >=16px on small screens */
+  @media (max-width: 640px) {
+    input, select, textarea {
+      font-size: 16px;
+    }
+    input.text-xs, input.text-\[11px\], input.text-\[10px\],
+    select.text-xs, textarea.text-xs {
+      font-size: 16px;
+    }
+  }
+  img, video, canvas, svg { max-width: 100%; }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 999px; }
   ::-webkit-scrollbar-track { background: transparent; }
+}
+
+@layer utilities {
+  /* Safe-area helpers for notched phones + bottom nav */
+  .pb-safe { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+  .pt-safe { padding-top: max(0.5rem, env(safe-area-inset-top)); }
+  .mb-safe { margin-bottom: env(safe-area-inset-bottom); }
+  /* Hide scrollbars for horizontal chip rails while keeping scroll */
+  .scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+  /* Touch-friendly horizontal snap rails (board columns, view switcher) */
+  .snap-x-scroll {
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+  .snap-x-scroll > * { scroll-snap-align: start; }
+  /* Prevent long words / urls from breaking mobile layout */
+  .break-anywhere { overflow-wrap: anywhere; word-break: break-word; }
 }
 
 .font-caveat { font-family: 'Caveat', cursive; }

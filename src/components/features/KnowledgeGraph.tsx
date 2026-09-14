@@ -214,9 +214,9 @@ export function KnowledgeGraphView({
   }
 
   return (
-    <div className="rounded-2xl border bg-card p-4 md:p-6 space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="text-sm font-semibold mr-auto">
+    <div className="rounded-2xl border bg-card p-3 sm:p-4 md:p-6 space-y-4 min-w-0">
+      <div className="flex flex-wrap items-center gap-2 min-w-0">
+        <div className="text-sm font-semibold mr-auto min-w-0">
           Knowledge Graph — {visible.length} nodes • {vEdges.length} edges
           {truncated > 0 && <span className="text-muted-foreground font-normal"> (+{truncated} not shown)</span>}
         </div>
@@ -238,17 +238,17 @@ export function KnowledgeGraphView({
           className="h-8 px-3 rounded-full border bg-background text-xs w-32"
         />
         <div className="flex items-center gap-1">
-          <button onClick={() => setView((v) => ({ ...v, w: Math.max(300, v.w * 0.8) }))} className="w-8 h-8 rounded-lg border text-sm" aria-label="Zoom in">+</button>
-          <button onClick={() => setView((v) => ({ ...v, w: Math.min(2400, v.w * 1.25) }))} className="w-8 h-8 rounded-lg border text-sm" aria-label="Zoom out">−</button>
-          <button onClick={() => { setView({ x: -500, y: -380, w: 1000 }); setSelectedId(null) }} className="h-8 px-2.5 rounded-lg border text-xs">Reset</button>
+          <button onClick={() => setView((v) => ({ ...v, w: Math.max(300, v.w * 0.8) }))} className="w-10 h-10 sm:w-8 sm:h-8 grid place-items-center rounded-lg border text-sm" aria-label="Zoom in">+</button>
+          <button onClick={() => setView((v) => ({ ...v, w: Math.min(2400, v.w * 1.25) }))} className="w-10 h-10 sm:w-8 sm:h-8 grid place-items-center rounded-lg border text-sm" aria-label="Zoom out">−</button>
+          <button onClick={() => { setView({ x: -500, y: -380, w: 1000 }); setSelectedId(null) }} className="h-10 sm:h-8 px-3 sm:px-2.5 grid place-items-center rounded-lg border text-xs">Reset</button>
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-4">
+      <div className="flex flex-col lg:flex-row gap-4 min-w-0">
         <svg
           ref={svgRef}
           viewBox={`${view.x} ${view.y} ${view.w} ${h}`}
-          className="flex-1 h-[420px] md:h-[560px] rounded-xl bg-muted/20 border cursor-grab touch-none select-none"
+          className="flex-1 min-w-0 w-full h-[320px] sm:h-[420px] md:h-[560px] rounded-xl bg-muted/20 border cursor-grab touch-none select-none"
           onPointerDown={(e) => {
             (e.target as Element).closest('g[data-node]') ||
               setDrag({ kind: 'pan', sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y })

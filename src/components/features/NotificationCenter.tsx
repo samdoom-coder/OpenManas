@@ -70,7 +70,7 @@ export function NotificationCenter({ open, onClose }: { open?: boolean, onClose?
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/20" onClick={close} />
-      <div className="relative w-[380px] max-w-[90vw] bg-popover border-l shadow-xl h-screen flex flex-col">
+      <div className="relative w-[380px] max-w-[92vw] bg-popover border-l shadow-xl h-[100dvh] flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="p-4 border-b flex items-center justify-between">
           <h3 className="font-semibold flex items-center gap-2"><Bell size={16}/> Notifications {unread > 0 && <span className="text-xs font-normal text-muted-foreground">({unread} unread)</span>}</h3>
           <Button variant="ghost" size="sm" onClick={() => markAllNotificationsRead()}><Check size={14} className="mr-1"/> Mark all read</Button>

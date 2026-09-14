@@ -97,6 +97,7 @@ export function DatabaseViews({ database, compact, hideSwitcher, initialViewType
   useEffect(()=> { setPage(1) }, [database.id, filterQ, filterGroup, sort, pageSize])
   const from = filtered.length === 0 ? 0 : (safePage - 1) * pageSize + 1
   const to = Math.min(filtered.length, safePage * pageSize)
+  const visibleColCount = database.properties.filter(p => p.visible !== false && !hiddenCols.has(p.id)).length
 
   const handleAdd = () => {
     const props: Record<string, unknown> = {}
@@ -200,49 +201,52 @@ export function DatabaseViews({ database, compact, hideSwitcher, initialViewType
   }
 
   return (
-    <div className={cn("space-y-3 w-full max-w-full", compact && "space-y-2")}>
-      <div className={cn("flex flex-wrap items-center gap-2 w-full max-w-full relative", compact && "gap-1 px-1")}>
+    <div className={cn("space-y-3 w-full max-w-full min-w-0", compact && "space-y-2")}>
+      <div className={cn("flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 w-full max-w-full min-w-0", compact && "gap-1 px-1")}>
         {!hideSwitcher && (
-        <div className={cn("flex items-center gap-1 p-1 rounded-xl border bg-muted/20 overflow-auto flex-1 max-w-full", compact && "p-0.5")}>
+        <div className={cn("flex items-center gap-1 p-1 rounded-xl border bg-muted/20 overflow-x-auto scrollbar-none snap-x-scroll flex-1 max-w-full min-w-0", compact && "p-0.5")}>
           {(['table','board','gallery','calendar','list','timeline'] as const).map(t=> (
-            <button key={t} onClick={()=> changeView(t as any)} className={cn(`px-3 py-1.5 rounded-lg text-xs font-medium capitalize flex items-center gap-1.5 shrink-0 ${viewType===t ? 'bg-background shadow border' : 'hover:bg-accent'}`, compact && "px-2 py-1 text-[11px]")}>
+            <button key={t} onClick={()=> changeView(t as any)} aria-pressed={viewType===t} className={cn(`px-3 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg text-xs font-medium capitalize flex items-center gap-1.5 shrink-0 snap-start`, viewType===t ? 'bg-background shadow border' : 'hover:bg-accent', compact && "px-2 py-1 text-[11px] min-h-0")}>
               {t==='table' && <TableIcon size={14}/>}
               {t==='board' && <Kanban size={14}/>}
               {t==='gallery' && <LayoutGrid size={14}/>}
               {t==='calendar' && <Calendar size={14}/>}
               {t==='list' && <List size={14}/>}
               {t==='timeline' && <Clock size={14}/>}
-              {t}
+              <span className="hidden xs:inline sm:inline">{t}</span>
             </button>
           ))}
         </div>
         )}
-        <div className="flex items-center gap-1.5 ml-auto shrink-0">
+        <div className="flex items-center gap-1.5 ml-auto shrink-0 w-full sm:w-auto justify-end">
           {(filterGroup || sort || hiddenCols.size>0) && (
-            <span className="hidden sm:inline-flex items-center gap-1 text-[11px] bg-amber-500/10 border border-amber-500/20 rounded-full px-2 py-1">
+            <span className="inline-flex items-center gap-1 text-[11px] bg-amber-500/10 border border-amber-500/20 rounded-full px-2 py-1 mr-auto sm:mr-0">
               {filterGroup && <span>Filter•{filterGroup.conditions.length}</span>}
               {sort && <span>Sort</span>}
               {hiddenCols.size>0 && <span>Hidden•{hiddenCols.size}</span>}
             </span>
           )}
-          <Button size="sm" className={cn(compact && "h-7 px-2 text-xs")} onClick={handleAdd}><Plus size={14} className={compact ? "" : "mr-1"}/> {compact ? "+" : "New"}</Button>
+          <Button size="sm" className={cn("min-h-[36px]", compact && "h-7 px-2 text-xs min-h-0")} onClick={handleAdd}><Plus size={14} className={compact ? "" : "mr-1"}/> {compact ? "+" : "New"}</Button>
           <button
             onClick={handleExportCsv}
-            className={cn("p-2 rounded-xl border bg-card hover:bg-accent shadow-sm", compact && "p-1.5")}
+            aria-label="Export CSV"
+            className={cn("p-2 min-w-[36px] min-h-[36px] grid place-items-center rounded-xl border bg-card hover:bg-accent shadow-sm", compact && "p-1.5 min-w-0 min-h-0")}
             title={`Export ${filtered.length} visible rows to CSV`}
           >
             <Download size={14}/>
           </button>
           <button
             onClick={()=> fileRef.current?.click()}
-            className={cn("p-2 rounded-xl border bg-card hover:bg-accent shadow-sm", compact && "p-1.5")}
+            aria-label="Import"
+            className={cn("p-2 min-w-[36px] min-h-[36px] grid place-items-center rounded-xl border bg-card hover:bg-accent shadow-sm", compact && "p-1.5 min-w-0 min-h-0")}
             title="Import CSV or JSON"
           >
             <Upload size={14}/>
           </button>
           <button
             onClick={()=> setShowControls(!showControls)}
-            className={cn("p-2 rounded-xl border shadow-sm flex items-center gap-1.5 text-xs font-medium transition-colors", showControls ? "bg-accent border-violet-500/20" : "bg-card hover:bg-accent", compact && "p-1.5")}
+            aria-expanded={showControls}
+            className={cn("p-2 min-h-[36px] rounded-xl border shadow-sm flex items-center gap-1.5 text-xs font-medium transition-colors", showControls ? "bg-accent border-violet-500/20" : "bg-card hover:bg-accent", compact && "p-1.5 min-h-0")}
             title="Table options"
           >
             <SlidersHorizontal size={14}/> <span className={cn(compact && "hidden")}>{showControls ? "Hide" : "Options"}</span>
@@ -250,7 +254,7 @@ export function DatabaseViews({ database, compact, hideSwitcher, initialViewType
         </div>
 
         {showControls && (
-          <div className="absolute right-0 top-full mt-2 z-20 w-[360px] max-w-[92vw] bg-popover border rounded-2xl shadow-xl p-3 space-y-3 animate-in fade-in">
+          <div className="fixed left-3 right-3 top-[120px] z-40 sm:absolute sm:left-auto sm:right-0 sm:top-full mt-2 sm:mt-2 sm:w-[360px] sm:max-w-[92vw] max-h-[70dvh] overflow-y-auto bg-popover border rounded-2xl shadow-xl p-3 space-y-3 animate-in fade-in">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold flex items-center gap-1.5"><Settings size={12}/> Table controls</span>
               <button onClick={()=> setShowControls(false)} className="p-1 hover:bg-accent rounded-lg"><X size={14}/></button>
@@ -336,7 +340,14 @@ export function DatabaseViews({ database, compact, hideSwitcher, initialViewType
         </div>
       )}
 
-      {viewType==='table' && <TableView database={database} records={paged} hiddenCols={hiddenCols} onHide={toggleHide} onOpenRecord={setOpenRecordId} onUpdate={updateRecord} onDelete={deleteRecord} onSort={(pid)=> setSort({ propertyId: pid, direction: sort?.direction==='asc' ? 'desc' : 'asc'})} />}
+      {viewType==='table' && (
+        <>
+          {visibleColCount > 2 && (
+            <div className="sm:hidden text-[11px] text-muted-foreground px-1 -mt-1">← Swipe sideways to see all {visibleColCount} columns →</div>
+          )}
+          <TableView database={database} records={paged} hiddenCols={hiddenCols} onHide={toggleHide} onOpenRecord={setOpenRecordId} onUpdate={updateRecord} onDelete={deleteRecord} onSort={(pid)=> setSort({ propertyId: pid, direction: sort?.direction==='asc' ? 'desc' : 'asc'})} />
+        </>
+      )}
       {viewType==='board' && <BoardView database={database} records={paged} onUpdate={updateRecord} onOpenRecord={setOpenRecordId} />}
       {viewType==='gallery' && <GalleryView database={database} records={paged} onOpenRecord={setOpenRecordId} />}
       {viewType==='calendar' && <CalendarView database={database} records={filtered} onOpenRecord={setOpenRecordId} onUpdate={updateRecord} onCreate={(props)=> createRecord(database.id, props)} />}
@@ -344,13 +355,13 @@ export function DatabaseViews({ database, compact, hideSwitcher, initialViewType
       {viewType==='timeline' && <TimelineView database={database} records={paged} />}
 
       {!compact && filtered.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 text-xs text-muted-foreground">
           <span className="tabular-nums">Showing {from}–{to} of {filtered.length}</span>
-          <div className="flex items-center gap-1 ml-auto">
-            <button disabled={safePage<=1} onClick={()=> setPage(p=> Math.max(1, p-1))} className="px-2 py-1 rounded-lg border bg-card disabled:opacity-40 hover:bg-accent">Prev</button>
-            <span className="tabular-nums px-1">Page {safePage} / {totalPages}</span>
-            <button disabled={safePage>=totalPages} onClick={()=> setPage(p=> Math.min(totalPages, p+1))} className="px-2 py-1 rounded-lg border bg-card disabled:opacity-40 hover:bg-accent">Next</button>
-            <select aria-label="Rows per page" value={pageSize} onChange={e=> updateSettings({ databases: { pageSize: Number(e.target.value) } })} className="border rounded-lg px-1.5 py-1 bg-background">
+          <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
+            <button disabled={safePage<=1} onClick={()=> setPage(p=> Math.max(1, p-1))} className="px-3 py-2 min-h-[36px] rounded-lg border bg-card disabled:opacity-40 hover:bg-accent">Prev</button>
+            <span className="tabular-nums px-1 whitespace-nowrap">Page {safePage} / {totalPages}</span>
+            <button disabled={safePage>=totalPages} onClick={()=> setPage(p=> Math.min(totalPages, p+1))} className="px-3 py-2 min-h-[36px] rounded-lg border bg-card disabled:opacity-40 hover:bg-accent">Next</button>
+            <select aria-label="Rows per page" value={pageSize} onChange={e=> updateSettings({ databases: { pageSize: Number(e.target.value) } })} className="border rounded-lg px-1.5 py-2 min-h-[36px] bg-background">
               {[10,25,50,100,250,500].map(n=> <option key={n} value={n}>{n}/page</option>)}
             </select>
           </div>
@@ -390,29 +401,34 @@ export function FilterModal({ database, initial, onApply, onClose }: { database:
   return (
     <Modal open onClose={onClose} title="Filters" className="max-w-[560px]">
       <div className="space-y-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium">Match</span>
-          <select value={op} onChange={e=> setOp(e.target.value as any)} className="border rounded-lg px-2 py-1 text-xs bg-background"><option value="and">AND</option><option value="or">OR</option><option value="not">NOT</option></select>
+          <select value={op} onChange={e=> setOp(e.target.value as any)} className="border rounded-lg px-2 py-2 min-h-[40px] text-xs bg-background"><option value="and">AND</option><option value="or">OR</option><option value="not">NOT</option></select>
           <span className="text-xs text-muted-foreground">of the following</span>
-          <button onClick={add} className="ml-auto text-xs border rounded-lg px-2 py-1 hover:bg-accent">+ Add condition</button>
+          <button onClick={add} className="ml-auto text-xs border rounded-lg px-3 py-2 min-h-[40px] hover:bg-accent">+ Add condition</button>
         </div>
-        {conds.length===0 && <div className="py-6 text-center text-xs text-muted-foreground border rounded-xl border-dashed">No filters — all records shown. Add e.g. Status = In Progress AND Priority = High.</div>}
+        {conds.length===0 && <div className="py-6 text-center text-xs text-muted-foreground border rounded-xl border-dashed px-4">No filters — all records shown. Add e.g. Status = In Progress AND Priority = High.</div>}
         {conds.map((c, idx)=> (
-          <div key={idx} className="flex items-center gap-2 p-2 rounded-xl border bg-muted/20">
-            <select value={c.propertyId} onChange={e=> { const n=[...conds]; n[idx]={...c, propertyId:e.target.value}; setConds(n)}} className="border rounded-lg px-2 py-1 text-xs bg-background flex-1">
+          <div key={idx} className="flex flex-col sm:flex-row sm:items-center gap-2 p-2 rounded-xl border bg-muted/20">
+            <select value={c.propertyId} onChange={e=> { const n=[...conds]; n[idx]={...c, propertyId:e.target.value}; setConds(n)}} className="border rounded-lg px-2 py-2 min-h-[40px] text-xs bg-background flex-1 min-w-0">
               {database.properties.map(p=> <option key={p.id} value={p.id}>{p.name} ({p.type})</option>)}
             </select>
-            <select value={c.operator} onChange={e=> { const n=[...conds]; n[idx]={...c, operator:e.target.value as any}; setConds(n)}} className="border rounded-lg px-2 py-1 text-xs bg-background">
-              <option value="equals">equals</option><option value="not_equals">not equals</option><option value="contains">contains</option><option value="not_contains">not contains</option><option value="gt">gt</option><option value="lt">lt</option><option value="is_empty">is empty</option><option value="is_not_empty">is not empty</option>
-            </select>
-            <Input value={String(c.value)} onChange={e=> { const n=[...conds]; n[idx]={...c, value:e.target.value}; setConds(n)}} placeholder="value" className="h-7 text-xs flex-1" />
-            <button onClick={()=> setConds(conds.filter((_,i)=>i!==idx))} className="p-1 hover:bg-accent rounded">✕</button>
+            <div className="flex items-center gap-2">
+              <select value={c.operator} onChange={e=> { const n=[...conds]; n[idx]={...c, operator:e.target.value as any}; setConds(n)}} className="border rounded-lg px-2 py-2 min-h-[40px] text-xs bg-background flex-1 sm:flex-none">
+                <option value="equals">equals</option><option value="not_equals">not equals</option><option value="contains">contains</option><option value="not_contains">not contains</option><option value="gt">gt</option><option value="lt">lt</option><option value="is_empty">is empty</option><option value="is_not_empty">is not empty</option>
+              </select>
+              <button onClick={()=> setConds(conds.filter((_,i)=>i!==idx))} className="sm:hidden p-2 min-w-[40px] min-h-[40px] grid place-items-center hover:bg-accent rounded" aria-label="Remove filter">✕</button>
+            </div>
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <Input value={String(c.value)} onChange={e=> { const n=[...conds]; n[idx]={...c, value:e.target.value}; setConds(n)}} placeholder="value" className="h-10 text-sm flex-1 min-w-0" />
+              <button onClick={()=> setConds(conds.filter((_,i)=>i!==idx))} className="hidden sm:block p-2 hover:bg-accent rounded min-w-[36px]" aria-label="Remove filter">✕</button>
+            </div>
           </div>
         ))}
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" size="sm" onClick={()=> { onApply(undefined); }}>Clear</Button>
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={()=> onApply(conds.length? { op, conditions: conds }: undefined)}>Apply</Button>
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
+          <Button variant="ghost" size="sm" className="min-h-[40px]" onClick={()=> { onApply(undefined); }}>Clear</Button>
+          <Button variant="ghost" size="sm" className="min-h-[40px]" onClick={onClose}>Cancel</Button>
+          <Button size="sm" className="min-h-[40px]" onClick={()=> onApply(conds.length? { op, conditions: conds }: undefined)}>Apply</Button>
         </div>
       </div>
     </Modal>
@@ -610,9 +626,9 @@ function TableView({ database, records, hiddenCols, onHide, onOpenRecord, onUpda
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-background" onClick={() => { setEditing(null); setMenuProp(null); setRowMenu(null) }}>
+    <div className="overflow-hidden rounded-xl border bg-background min-w-0" onClick={() => { setEditing(null); setMenuProp(null); setRowMenu(null) }}>
       {virtualized ? (
-      <div className="w-full overflow-x-auto">
+      <div className="w-full overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
         <div style={{ width: Math.max(totalWidth, 640) }}>
           <div className="flex border-b bg-background text-[13px] font-normal text-muted-foreground">
             <div className="w-8 shrink-0 px-1 py-2" />
@@ -688,8 +704,8 @@ function TableView({ database, records, hiddenCols, onHide, onOpenRecord, onUpda
         </div>
       </div>
       ) : (
-      <div className="w-full overflow-x-auto">
-        <table className="border-collapse text-sm" style={{ width: Math.max(totalWidth, 640) }}>
+      <div className="w-full overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <table className="border-collapse text-sm min-w-[640px]" style={{ width: Math.max(totalWidth, 640) }}>
           <thead className="border-b text-[13px] font-normal text-muted-foreground">
             <tr>
               <th className="w-8 px-1 py-2" />
@@ -858,9 +874,9 @@ function BoardView({ database, records, onUpdate, onOpenRecord }: { database: Da
   const groupBy = database.views.find(v=>v.type==='board')?.groupBy || database.properties.find(p=> p.type==='status' || p.type==='select')?.id
   const groups = groupRecords(records, groupBy)
   return (
-    <div className="flex gap-4 overflow-auto pb-2">
+    <div className="flex gap-3 overflow-x-auto snap-x-scroll pb-2 -mx-1 px-1 sm:mx-0 sm:px-0">
       {Object.entries(groups).map(([key, items])=> (
-        <div key={key} className="w-[300px] shrink-0 rounded-2xl border bg-card p-3">
+        <div key={key} className="w-[260px] sm:w-[300px] shrink-0 snap-start rounded-2xl border bg-card p-3">
           <div className="flex items-center justify-between mb-3">
             <span className={`px-2 py-1 rounded-full text-xs font-semibold ${colorFor(key)}`}>{key}</span>
             <span className="text-xs bg-muted px-2 py-1 rounded-full">{items.length}</span>
@@ -1085,9 +1101,9 @@ function CalendarView({ database, records, onOpenRecord, onUpdate, onCreate }: {
       )}
 
       {/* Month grid */}
-      <div className="border rounded-2xl overflow-hidden bg-card p-2 sm:p-3">
-        <div className="grid grid-cols-7 gap-1 sm:gap-1.5 text-xs">
-          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => <div key={d} className="text-muted-foreground font-medium p-1.5 text-center">{d}</div>)}
+      <div className="border rounded-2xl overflow-hidden bg-card p-1.5 sm:p-3 min-w-0">
+        <div className="grid grid-cols-7 gap-0.5 sm:gap-1.5 text-xs min-w-0">
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => <div key={d} className="text-muted-foreground font-medium p-1 text-center text-[10px] sm:text-xs"><span className="sm:hidden">{d[0]}</span><span className="hidden sm:inline">{d}</span></div>)}
           {cells.map((k, i) => {
             if (!k) return <div key={`blank-${i}`} />
             const items = byDay.get(k) ?? []
@@ -1099,14 +1115,15 @@ function CalendarView({ database, records, onOpenRecord, onUpdate, onCreate }: {
               <button
                 key={k}
                 onClick={() => setSelected(k)}
-                className={`min-h-[76px] sm:min-h-[92px] rounded-xl border p-1.5 text-left transition-colors ${isSel ? 'border-violet-500 ring-1 ring-violet-500/40 bg-violet-500/5' : isToday ? 'bg-violet-500/10 border-violet-500/30' : 'bg-muted/20 hover:bg-muted/40'}`}
+                className={`min-h-[56px] sm:min-h-[92px] rounded-lg sm:rounded-xl border p-1 sm:p-1.5 text-left transition-colors min-w-0 ${isSel ? 'border-violet-500 ring-1 ring-violet-500/40 bg-violet-500/5' : isToday ? 'bg-violet-500/10 border-violet-500/30' : 'bg-muted/20 hover:bg-muted/40'}`}
               >
                 <div className="flex items-center gap-1">
                   <span className={`text-[11px] font-medium w-5 h-5 grid place-items-center rounded-full shrink-0 ${isToday ? 'bg-violet-500 text-white' : ''}`}>{dayNum}</span>
                   {hasOverdue && <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" title="Overdue item" />}
-                  {items.length > 0 && <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">{items.length}</span>}
+                  {items.length > 0 && <span className="ml-auto text-[10px] text-muted-foreground tabular-nums hidden sm:inline">{items.length}</span>}
+                  {items.length > 0 && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-violet-500 sm:hidden shrink-0" />}
                 </div>
-                <div className="space-y-1 mt-1">
+                <div className="space-y-1 mt-1 hidden sm:block">
                   {items.slice(0, 3).map(r => (
                     <DayChip key={r.id} record={r} database={database} dateProp={dateProp} refKey={ref} title={titleOf(r)} onOpen={onOpenRecord} />
                   ))}

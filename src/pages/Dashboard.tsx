@@ -18,22 +18,22 @@ export function Dashboard({ onNavigate }: { onNavigate?: (r:string)=>void }) {
   const greeting = hour <12 ? 'Good morning' : hour<18 ? 'Good afternoon' : 'Good evening'
 
   return (
-    <div className="max-w-[1200px] mx-auto p-6 md:p-8 space-y-6">
-      <div className="rounded-[24px] bg-gradient-to-br from-violet-600 via-indigo-600 to-blue-600 p-6 md:p-8 text-white relative overflow-hidden">
+    <div className="max-w-[1200px] mx-auto p-4 sm:p-6 md:p-8 space-y-5 sm:space-y-6 min-w-0">
+      <div className="rounded-[20px] sm:rounded-[24px] bg-gradient-to-br from-violet-600 via-indigo-600 to-blue-600 p-5 sm:p-6 md:p-8 text-white relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.15),transparent_50%)]" />
-        <div className="relative">
-          <div className="text-sm opacity-80">{new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric'})}</div>
-          <h1 className="text-3xl font-bold mt-1">{greeting}, {firstName}.</h1>
-          <p className="opacity-80 mt-2 max-w-[600px]">Your workspace is a calm, intelligent surface for thinking. {safePages.length} pages • {safeDatabases.length} databases • {safeRecords.length} records.</p>
-          <div className="flex flex-wrap gap-2 mt-5">
-            <Button onClick={()=> createPage('Untitled')} className="bg-white text-violet-700 hover:bg-white/90 rounded-xl"><Plus size={16} className="mr-1"/> New Page</Button>
-            <Button onClick={()=> useAppStore.getState().createDatabase('New Database')} variant="secondary" className="bg-white/15 text-white hover:bg-white/20 border-white/20 rounded-xl border"> <Database size={16} className="mr-1"/> New Database</Button>
-            <Button variant="ghost" className="bg-white/10 text-white hover:bg-white/15 rounded-xl border border-white/15">Import</Button>
+        <div className="relative min-w-0">
+          <div className="text-xs sm:text-sm opacity-80">{new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric'})}</div>
+          <h1 className="text-2xl sm:text-3xl font-bold mt-1 break-anywhere">{greeting}, {firstName}.</h1>
+          <p className="opacity-80 mt-2 max-w-[600px] text-sm sm:text-base">Your workspace is a calm, intelligent surface for thinking. {safePages.length} pages • {safeDatabases.length} databases • {safeRecords.length} records.</p>
+          <div className="flex flex-col xs:flex-row sm:flex-row flex-wrap gap-2 mt-5">
+            <Button onClick={()=> createPage('Untitled')} className="bg-white text-violet-700 hover:bg-white/90 rounded-xl w-full xs:w-auto sm:w-auto min-h-[44px]"><Plus size={16} className="mr-1"/> New Page</Button>
+            <Button onClick={()=> useAppStore.getState().createDatabase('New Database')} variant="secondary" className="bg-white/15 text-white hover:bg-white/20 border-white/20 rounded-xl border w-full xs:w-auto sm:w-auto min-h-[44px]"> <Database size={16} className="mr-1"/> New Database</Button>
+            <Button variant="ghost" className="bg-white/10 text-white hover:bg-white/15 rounded-xl border border-white/15 w-full xs:w-auto sm:w-auto min-h-[44px]">Import</Button>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
         {[
           { label: 'Pages', value: safePages.length, icon: FileText, change: '+3 this week' },
           { label: 'Tasks', value: safeRecords.length, icon: Activity, change: '5 due soon' },
@@ -53,8 +53,8 @@ export function Dashboard({ onNavigate }: { onNavigate?: (r:string)=>void }) {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2 rounded-2xl">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+        <Card className="lg:col-span-2 rounded-2xl min-w-0">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <h3 className="font-semibold flex items-center gap-2"><Clock size={16}/> Recently opened</h3>
             <Button variant="ghost" size="sm">View all</Button>
@@ -99,8 +99,8 @@ export function Dashboard({ onNavigate }: { onNavigate?: (r:string)=>void }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="rounded-2xl">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+        <Card className="rounded-2xl min-w-0">
           <CardHeader><h3 className="font-semibold">Quick actions</h3></CardHeader>
           <CardContent className="grid grid-cols-2 gap-2">
             {[
@@ -109,21 +109,21 @@ export function Dashboard({ onNavigate }: { onNavigate?: (r:string)=>void }) {
               { label: 'Search', icon: Clock, action: ()=> useAppStore.getState().setSearchOpen(true)},
               { label: 'Ask AI', icon: Sparkles, action: ()=> {}},
             ].map(a=> (
-              <button key={a.label} onClick={a.action} className="flex items-center gap-2 p-3 rounded-xl border hover:bg-accent text-sm font-medium">
-                <a.icon size={16}/> {a.label}
+              <button key={a.label} onClick={a.action} className="flex items-center gap-2 p-3 min-h-[48px] rounded-xl border hover:bg-accent text-sm font-medium min-w-0">
+                <a.icon size={16} className="shrink-0"/> <span className="truncate">{a.label}</span>
               </button>
             ))}
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl lg:col-span-2">
+        <Card className="rounded-2xl lg:col-span-2 min-w-0">
           <CardHeader><h3 className="font-semibold flex items-center gap-2"><Activity size={16}/> Activity</h3></CardHeader>
           <CardContent className="space-y-3">
             {safeActivities.slice(0,6).map(act=> (
-              <div key={act.id} className="flex items-center gap-3 text-sm">
-                <img src={`https://i.pravatar.cc/100?img=12`} className="w-7 h-7 rounded-full" alt=""/>
-                <span className="flex-1"><span className="font-medium">{user?.name || 'Someone'}</span> <span className="text-muted-foreground">{String(act.action || 'updated').replace('_',' ')}</span> <span className="font-medium">{act.targetType || ''}</span></span>
-                <span className="text-xs text-muted-foreground">{act.createdAt ? formatRelative(act.createdAt) : ''}</span>
+              <div key={act.id} className="flex items-center gap-3 text-sm min-w-0">
+                <img src={`https://i.pravatar.cc/100?img=12`} className="w-7 h-7 rounded-full shrink-0" alt=""/>
+                <span className="flex-1 min-w-0 truncate"><span className="font-medium">{user?.name || 'Someone'}</span> <span className="text-muted-foreground">{String(act.action || 'updated').replace('_',' ')}</span> <span className="font-medium">{act.targetType || ''}</span></span>
+                <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline">{act.createdAt ? formatRelative(act.createdAt) : ''}</span>
               </div>
             ))}
           </CardContent>

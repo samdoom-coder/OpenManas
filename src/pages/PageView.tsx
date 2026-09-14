@@ -95,17 +95,17 @@ export function PageView({ pageId }: { pageId: string }) {
       style={themeStyle ? { ...themeStyle, fontFamily: pageTheme.fontFamily } : undefined}
       className={themed ? 'min-h-full bg-[hsl(var(--background))] text-[hsl(var(--foreground))] transition-colors' : 'min-h-full'}
     >
-    <div className="max-w-[860px] mx-auto w-full">
+    <div className="max-w-[860px] mx-auto w-full min-w-0">
       <PageCover page={page} anchor={coverAnchor} setAnchor={setCoverAnchor} />
-      <div className="px-6 md:px-8 py-6 space-y-6">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="px-2 py-1 rounded-full border bg-muted">Private</span>
-          <span>•</span>
-          <span>Edited {new Date(page.updatedAt).toLocaleString()}</span>
-          <span className="ml-auto flex items-center gap-1">
-            <Button variant="ghost" size="sm" onClick={()=> commentsRef.current?.scrollIntoView({ behavior:'smooth'})}><MessageSquare size={14} className="mr-1"/> Comments</Button>
-            <Button variant="ghost" size="sm" onClick={()=> openShare(page.id)}><Share2 size={14} className="mr-1"/> Share</Button>
-            <Button variant="ghost" size="icon" onClick={()=> toggleFavorite(page.id)}><Star size={16} className={page.isFavorite ? 'fill-amber-400 text-amber-400':''}/></Button>
+      <div className="px-4 sm:px-6 md:px-8 py-4 sm:py-6 space-y-5 sm:space-y-6 min-w-0">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span className="px-2 py-1 rounded-full border bg-muted shrink-0">Private</span>
+          <span className="hidden xs:inline sm:inline">•</span>
+          <span className="truncate">Edited {new Date(page.updatedAt).toLocaleString()}</span>
+          <span className="ml-auto flex items-center gap-0.5 sm:gap-1 shrink-0">
+            <Button variant="ghost" size="sm" className="px-2 sm:px-3" onClick={()=> commentsRef.current?.scrollIntoView({ behavior:'smooth'})}><MessageSquare size={14} className="sm:mr-1"/><span className="hidden sm:inline">Comments</span></Button>
+            <Button variant="ghost" size="sm" className="px-2 sm:px-3" onClick={()=> openShare(page.id)}><Share2 size={14} className="sm:mr-1"/><span className="hidden sm:inline">Share</span></Button>
+            <Button variant="ghost" size="icon" onClick={()=> toggleFavorite(page.id)} aria-label="Favorite"><Star size={16} className={page.isFavorite ? 'fill-amber-400 text-amber-400':''}/></Button>
           </span>
         </div>
 
@@ -120,7 +120,7 @@ export function PageView({ pageId }: { pageId: string }) {
                 <PageIcon page={page} size="xl" className="rounded-2xl" />
               </button>
               {iconPicker && (
-                <div className="absolute left-0 top-full z-30 mt-2">
+                <div className="fixed left-1/2 top-[70px] z-40 -translate-x-1/2 sm:absolute sm:left-0 sm:right-auto sm:top-full sm:z-30 sm:mt-2 sm:translate-x-0">
                   <IconPicker
                     value={page}
                     onSelect={(patch) => {
@@ -141,41 +141,41 @@ export function PageView({ pageId }: { pageId: string }) {
                 </div>
               )}
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               {editingTitle ? (
-                <input autoFocus defaultValue={page.title} onBlur={e=> { updatePage(page.id, { title: e.target.value || 'Untitled'}); setEditingTitle(false)}} onKeyDown={e=> e.key==='Enter' && (e.target as HTMLInputElement).blur()} className="w-full text-4xl font-bold tracking-tight bg-transparent outline-none border-b"/>
+                <input autoFocus defaultValue={page.title} onBlur={e=> { updatePage(page.id, { title: e.target.value || 'Untitled'}); setEditingTitle(false)}} onKeyDown={e=> e.key==='Enter' && (e.target as HTMLInputElement).blur()} className="w-full text-2xl sm:text-4xl font-bold tracking-tight bg-transparent outline-none border-b"/>
               ) : (
-                <h1 onClick={()=> setEditingTitle(true)} className="text-4xl font-bold tracking-tight cursor-text hover:bg-accent/30 rounded-xl px-1 -mx-1">{page.title || 'Untitled'}</h1>
+                <h1 onClick={()=> setEditingTitle(true)} className="text-2xl sm:text-4xl font-bold tracking-tight cursor-text hover:bg-accent/30 rounded-xl px-1 -mx-1 break-anywhere">{page.title || 'Untitled'}</h1>
               )}
               <input placeholder="Add description..." defaultValue={page.description||''} onBlur={e=> updatePage(page.id, { description: e.target.value })} className="w-full mt-2 text-sm text-muted-foreground bg-transparent outline-none placeholder:text-muted-foreground/60"/>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 py-2 border-y text-xs">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 py-2 border-y text-xs">
             <PropertyPill label="Created" value={new Date(page.createdAt).toLocaleDateString()}/>
             <PropertyPill label="Updated" value={new Date(page.updatedAt).toLocaleDateString()}/>
             <PropertyPill label="Owner" value={useAppStore.getState().user.name}/>
-            <div className="ml-auto flex items-center gap-1">
+            <div className="ml-auto flex flex-wrap items-center gap-1 min-w-0">
               <span className="relative" data-cover-ui>
-                <Button variant="ghost" size="sm" onClick={()=> setCoverAnchor(coverAnchor === 'actions' ? null : 'actions')}><ImagePlus size={14} className="mr-1"/> Cover</Button>
+                <Button variant="ghost" size="sm" className="px-2 sm:px-3" onClick={()=> setCoverAnchor(coverAnchor === 'actions' ? null : 'actions')}><ImagePlus size={14} className="sm:mr-1"/><span className="hidden sm:inline">Cover</span></Button>
                 {coverAnchor === 'actions' && (
-                  <span className="absolute right-0 top-full z-30 mt-2">
+                  <span className="fixed left-1/2 top-[110px] z-40 -translate-x-1/2 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:z-30 sm:mt-2 sm:translate-x-0">
                     <CoverPicker value={page.cover} onSelect={(cover) => { updatePage(page.id, { cover } as never); setCoverAnchor(null) }} onClose={()=> setCoverAnchor(null)} />
                   </span>
                 )}
               </span>
               <span className="relative" ref={themeBtnRef}>
-                <Button variant="ghost" size="sm" onClick={()=> setThemeOpen(!themeOpen)} title={`Page theme: ${pageTheme.name}`}>
-                  <Palette size={14} className="mr-1"/>
+                <Button variant="ghost" size="sm" className="px-2 sm:px-3" onClick={()=> setThemeOpen((v) => !v)} title={`Page theme: ${pageTheme.name}`}>
+                  <Palette size={14} className="sm:mr-1"/>
                   <span
-                    className="mr-1 inline-block h-3 w-3 rounded-full border"
+                    className="sm:mr-1 inline-block h-3 w-3 rounded-full border"
                     style={{ background: pageTheme.swatch }}
                     aria-hidden
                   />
-                  {pageTheme.id === 'default' ? 'Theme' : pageTheme.name}
+                  <span className="hidden sm:inline">{pageTheme.id === 'default' ? 'Theme' : pageTheme.name}</span>
                 </Button>
                 {themeOpen && (
-                  <span className="absolute right-0 top-full z-30 mt-2">
+                  <span className="fixed left-1/2 top-[110px] z-40 -translate-x-1/2 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:z-30 sm:mt-2 sm:translate-x-0">
                     <ThemePicker
                       value={(page as { theme?: string }).theme}
                       onSelect={(theme: PageThemeId) => { updatePage(page.id, { theme } as never); setThemeOpen(false) }}
@@ -184,10 +184,10 @@ export function PageView({ pageId }: { pageId: string }) {
                   </span>
                 )}
               </span>
-              <Button variant="ghost" size="sm" onClick={()=> setShowMove(true)}><FolderInput size={14} className="mr-1"/> Move</Button>
-              <Button variant="ghost" size="sm" onClick={()=> duplicatePage(page.id)}><Copy size={14} className="mr-1"/> Duplicate</Button>
-              <Button variant="ghost" size="sm" onClick={()=> updatePage(page.id, { isArchived:true })}><Archive size={14} className="mr-1"/> Archive</Button>
-              <Button variant="ghost" size="sm" onClick={()=> deletePage(page.id)} className="text-red-600"><Trash2 size={14} className="mr-1"/> Trash</Button>
+              <Button variant="ghost" size="sm" className="px-2 sm:px-3" onClick={()=> setShowMove(true)}><FolderInput size={14} className="sm:mr-1"/><span className="hidden md:inline">Move</span></Button>
+              <Button variant="ghost" size="sm" className="px-2 sm:px-3 hidden sm:inline-flex" onClick={()=> duplicatePage(page.id)}><Copy size={14} className="mr-1"/> Duplicate</Button>
+              <Button variant="ghost" size="sm" className="px-2 sm:px-3 hidden sm:inline-flex" onClick={()=> updatePage(page.id, { isArchived:true })}><Archive size={14} className="mr-1"/> Archive</Button>
+              <Button variant="ghost" size="sm" className="px-2 sm:px-3 text-red-600" onClick={()=> deletePage(page.id)}><Trash2 size={14} className="sm:mr-1"/><span className="hidden md:inline">Trash</span></Button>
             </div>
           </div>
         </div>
@@ -353,25 +353,25 @@ function PageCover({ page, anchor, setAnchor }: { page: { id: string; cover?: st
   }
 
   return (
-    <div data-cover-ui className="group/cover relative h-[180px] overflow-visible">
+    <div data-cover-ui className="group/cover relative h-[140px] sm:h-[180px] overflow-visible">
       <div
         ref={frameRef}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        className={repositioning ? 'h-[180px] cursor-grab touch-none select-none active:cursor-grabbing' : 'h-[180px]'}
+        className={repositioning ? 'h-[140px] sm:h-[180px] cursor-grab touch-none select-none active:cursor-grabbing' : 'h-[140px] sm:h-[180px]'}
       >
         {isImage ? (
           <img
             src={cover.src}
             alt=""
             draggable={false}
-            className="h-[180px] w-full rounded-b-2xl bg-muted object-cover"
+            className="h-[140px] sm:h-[180px] w-full rounded-b-2xl bg-muted object-cover"
             style={{ objectPosition: `50% ${shownPos}%` }}
           />
         ) : (
-          <div className={`h-[180px] rounded-b-2xl bg-gradient-to-br ${cover.preset.classes}`} />
+          <div className={`h-[140px] sm:h-[180px] rounded-b-2xl bg-gradient-to-br ${cover.preset.classes}`} />
         )}
       </div>
 
@@ -431,7 +431,7 @@ function PageCover({ page, anchor, setAnchor }: { page: { id: string; cover?: st
         </div>
       )}
       {anchor === 'cover' && !repositioning && (
-        <div className="absolute right-3 top-12 z-30">
+        <div className="fixed left-1/2 top-[110px] z-40 -translate-x-1/2 sm:absolute sm:left-auto sm:right-3 sm:top-12 sm:z-30 sm:translate-x-0">
           <CoverPicker value={page.cover} onSelect={(c) => { updatePage(page.id, { cover: c } as never); setAnchor(null) }} onClose={() => setAnchor(null)} />
         </div>
       )}
@@ -450,7 +450,7 @@ function TrashedView({ page }: { page:any }) {
   const { restorePage } = useAppStore() as any
   // add restore fn in store if missing
   return (
-    <div className="max-w-[600px] mx-auto p-12 text-center">
+    <div className="max-w-[600px] mx-auto p-6 sm:p-12 text-center">
       <div className="w-12 h-12 rounded-2xl bg-muted grid place-items-center mx-auto mb-4"><Trash2 size={20}/></div>
       <h2 className="text-xl font-semibold">{page.title} is in Trash</h2>
       <p className="text-sm text-muted-foreground mt-2">Restore to continue editing or delete permanently.</p>
@@ -481,9 +481,9 @@ function CommentSection({ pageId }: { pageId:string }) {
           </div>
         </div>
       ))}
-      <div className="flex gap-2">
-        <input value={text} onChange={e=> setText(e.target.value)} placeholder="Add a comment... @mention" className="flex-1 h-9 rounded-xl border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"/>
-        <Button disabled={!text.trim()} onClick={()=> { addComment({ pageId, blockId: undefined, recordId: undefined, authorId: user.id, content: text, parentId: null } as any); setText('')}}>Send</Button>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input value={text} onChange={e=> setText(e.target.value)} placeholder="Add a comment... @mention" className="flex-1 min-w-0 h-10 rounded-xl border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"/>
+        <Button className="shrink-0 min-h-[40px]" disabled={!text.trim()} onClick={()=> { addComment({ pageId, blockId: undefined, recordId: undefined, authorId: user.id, content: text, parentId: null } as any); setText('')}}>Send</Button>
       </div>
     </div>
   )
@@ -525,11 +525,11 @@ function PageVersionHistory({ pageId }: { pageId:string }) {
   }
 
   return (
-    <div id="page-history" className="rounded-2xl border p-4 bg-card scroll-mt-20">
-      <div className="flex items-center gap-2">
+    <div id="page-history" className="rounded-2xl border p-3 sm:p-4 bg-card scroll-mt-20 min-w-0">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="flex items-center gap-2 font-medium text-sm"><History size={16}/> Version history</span>
         <span className="text-xs text-muted-foreground">{list.length > 0 ? `${list.length} snapshot${list.length === 1 ? '' : 's'}` : 'No snapshots yet'}</span>
-        <Button variant="outline" size="sm" className="ml-auto" onClick={snapshotNow}><Plus size={14} className="mr-1"/> Snapshot now</Button>
+        <Button variant="outline" size="sm" className="ml-auto min-h-[36px]" onClick={snapshotNow}><Plus size={14} className="mr-1"/> Snapshot now</Button>
       </div>
       <div className="text-xs text-muted-foreground mt-1">Auto-snapshots every 10 minutes of editing (max 20 per page). Restoring saves a safety snapshot first.</div>
       {list.length === 0 && (

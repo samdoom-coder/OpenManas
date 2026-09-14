@@ -49,7 +49,7 @@ export function Auth({ onNavigate }: { onNavigate: (r: 'dashboard') => void }) {
 
   if (token) {
     return (
-      <div className="max-w-[480px] mx-auto p-6 md:p-8">
+      <div className="max-w-[480px] mx-auto p-4 sm:p-6 md:p-8">
         <Card className="rounded-2xl">
           <CardHeader>
             <h1 className="text-xl font-bold">Account</h1>
@@ -73,7 +73,7 @@ export function Auth({ onNavigate }: { onNavigate: (r: 'dashboard') => void }) {
   }
 
   return (
-    <div className="max-w-[440px] mx-auto p-6 md:p-8">
+    <div className="max-w-[440px] mx-auto p-4 sm:p-6 md:p-8">
       <div className="text-center mb-6">
         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-500 grid place-items-center text-white text-xl mx-auto">⬢</div>
         <h1 className="text-2xl font-bold mt-3">Welcome to OpenManas</h1>

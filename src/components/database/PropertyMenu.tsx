@@ -40,7 +40,7 @@ export function ColumnHeaderMenu({
   return (
     <span className="block" onClick={(e) => e.stopPropagation()}>
       <span className="fixed inset-0 z-30 cursor-default" onClick={onClose} />
-      <span className="absolute left-0 top-full z-40 mt-1 block w-[240px] overflow-hidden rounded-xl border bg-popover p-1.5 shadow-xl">
+      <span className="absolute left-0 top-full z-40 mt-1 block w-[240px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border bg-popover p-1.5 shadow-xl">
         <span className="flex items-center gap-2 px-2.5 py-2">
           <span className="grid h-6 w-6 place-items-center rounded-md bg-muted text-xs font-bold">{def?.icon ?? 'T'}</span>
           <span className="min-w-0 flex-1">

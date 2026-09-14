@@ -42,30 +42,30 @@ export function CommandPalette() {
 
   if (!commandOpen) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[8vh] sm:pt-[20vh] px-3 sm:px-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={()=> setCommandOpen(false)} />
-      <div className="relative w-full max-w-[640px] mx-4 bg-popover border rounded-2xl shadow-2xl overflow-hidden">
-        <div className="flex items-center gap-3 px-4 h-14 border-b">
-          <Search size={18} className="text-muted-foreground"/>
+      <div className="relative w-full max-w-[640px] bg-popover border rounded-2xl shadow-2xl overflow-hidden max-h-[84dvh] flex flex-col">
+        <div className="flex items-center gap-3 px-4 min-h-[56px] py-2 border-b">
+          <Search size={18} className="text-muted-foreground shrink-0"/>
           <input autoFocus value={q} onChange={e=>{setQ(e.target.value); setIdx(0)}} onKeyDown={e=> {
             if (e.key==='ArrowDown') { e.preventDefault(); setIdx(i=> Math.min(i+1, filtered.length-1))}
             if (e.key==='ArrowUp') { e.preventDefault(); setIdx(i=> Math.max(i-1, 0))}
             if (e.key==='Enter') { filtered[idx]?.action() }
-          }} placeholder="Type a command or search..." className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground" />
-          <span className="text-xs border rounded-md px-1.5 py-1 text-muted-foreground">ESC</span>
+          }} placeholder="Type a command or search..." className="flex-1 min-w-0 bg-transparent outline-none placeholder:text-muted-foreground text-base sm:text-sm" />
+          <span className="text-xs border rounded-md px-1.5 py-1 text-muted-foreground hidden sm:inline">ESC</span>
         </div>
-        <div className="p-2 max-h-[380px] overflow-auto">
+        <div className="p-2 max-h-[50dvh] sm:max-h-[380px] overflow-y-auto overscroll-contain">
           <div className="px-2 py-1 text-[11px] tracking-widest font-semibold text-muted-foreground uppercase">Commands</div>
           {filtered.map((c,i)=> (
-            <button key={c.id} onClick={c.action} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-left ${i===idx ? 'bg-accent' : 'hover:bg-accent/60'}`}>
-              <c.icon size={16} className="text-muted-foreground"/>
-              <span className="flex-1">{c.label}</span>
-              {i===idx && <span className="text-xs text-muted-foreground">↵</span>}
+            <button key={c.id} onClick={c.action} className={`w-full flex items-center gap-3 px-3 py-3 sm:py-2.5 min-h-[48px] sm:min-h-0 rounded-xl text-sm text-left ${i===idx ? 'bg-accent' : 'hover:bg-accent/60'}`}>
+              <c.icon size={16} className="text-muted-foreground shrink-0"/>
+              <span className="flex-1 truncate">{c.label}</span>
+              {i===idx && <span className="text-xs text-muted-foreground hidden sm:inline">↵</span>}
             </button>
           ))}
           {filtered.length===0 && <div className="px-3 py-8 text-center text-sm text-muted-foreground">No results for “{q}”</div>}
         </div>
-        <div className="px-3 py-2 border-t bg-muted/30 flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="px-3 py-2 border-t bg-muted/30 hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
           <span>↑↓ Navigate</span> <span>•</span> <span>↵ Select</span> <span>•</span> <span>⌘K to close</span>
         </div>
       </div>
@@ -106,30 +106,32 @@ export function GlobalSearch() {
     return out
   })()
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[18vh]">
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[8vh] sm:pt-[18vh] px-3 sm:px-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={()=> setSearchOpen(false)} />
-      <div className="relative w-full max-w-[640px] mx-4 bg-popover border rounded-2xl shadow-2xl overflow-hidden">
-        <div className="flex items-center gap-3 px-4 h-14 border-b">
-          <Search size={18} className="text-muted-foreground"/>
-          <input autoFocus value={q} onChange={e=> setQ(e.target.value)} placeholder={mode==='semantic' ? 'Describe what you need…' : 'Search pages, blocks, records...'} className="flex-1 bg-transparent outline-none"/>
-          <div className="flex rounded-full border text-[11px] overflow-hidden shrink-0" role="tablist" aria-label="Search mode">
+      <div className="relative w-full max-w-[640px] bg-popover border rounded-2xl shadow-2xl overflow-hidden max-h-[84dvh] flex flex-col">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-4 py-2.5 sm:h-14 sm:py-0 border-b">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <Search size={18} className="text-muted-foreground shrink-0"/>
+            <input autoFocus value={q} onChange={e=> setQ(e.target.value)} placeholder={mode==='semantic' ? 'Describe what you need…' : 'Search pages, blocks, records...'} className="flex-1 min-w-0 bg-transparent outline-none text-base sm:text-sm"/>
+          </div>
+          <div className="flex rounded-full border text-[11px] overflow-hidden shrink-0 self-start sm:self-auto" role="tablist" aria-label="Search mode">
             {(['keyword', 'semantic'] as const).map(m=> (
-              <button key={m} onClick={()=> setMode(m)} className={`px-2.5 py-1 capitalize ${mode===m ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>{m}</button>
+              <button key={m} onClick={()=> setMode(m)} className={`px-3 py-1.5 min-h-[32px] capitalize ${mode===m ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>{m}</button>
             ))}
           </div>
         </div>
-        <div className="p-2 max-h-[400px] overflow-auto">
+        <div className="p-2 max-h-[55dvh] sm:max-h-[400px] overflow-y-auto overscroll-contain">
           {results.length===0 && q && <div className="p-8 text-center text-sm text-muted-foreground">No results{mode==='semantic' ? ' — try different words' : ''}</div>}
           {!q && <div className="p-8 text-center text-sm text-muted-foreground">{mode==='semantic' ? 'Semantic search finds related content even without exact words' : 'Type to search across workspace'}</div>}
           {results.map(r=> (
-            <button key={r.id} onClick={r.action} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-accent">
-              <div className="flex items-center gap-2">
-                <span className="text-xs px-1.5 py-0.5 rounded bg-secondary">{r.type}</span>
-                <span className="font-medium text-sm truncate">{r.title}</span>
-                {typeof r.score === 'number' && <span className="text-[11px] text-violet-600">{Math.round(r.score * 100)}%</span>}
-                <span className="ml-auto text-xs text-muted-foreground">{new Date(r.updatedAt).toLocaleDateString()}</span>
+            <button key={r.id} onClick={r.action} className="w-full text-left px-3 py-3 sm:py-2.5 min-h-[52px] sm:min-h-0 rounded-xl hover:bg-accent min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs px-1.5 py-0.5 rounded bg-secondary shrink-0">{r.type}</span>
+                <span className="font-medium text-sm truncate flex-1 min-w-0">{r.title}</span>
+                {typeof r.score === 'number' && <span className="text-[11px] text-violet-600 shrink-0 hidden sm:inline">{Math.round(r.score * 100)}%</span>}
+                <span className="ml-auto text-xs text-muted-foreground shrink-0 hidden sm:inline">{new Date(r.updatedAt).toLocaleDateString()}</span>
               </div>
-              {r.snippet && <div className="text-xs text-muted-foreground mt-1 line-clamp-1">{r.snippet}</div>}
+              {r.snippet && <div className="text-xs text-muted-foreground mt-1 line-clamp-1 break-anywhere">{r.snippet}</div>}
             </button>
           ))}
         </div>

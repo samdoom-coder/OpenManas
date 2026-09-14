@@ -103,11 +103,11 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-    <div className="min-h-screen bg-background text-foreground flex">
+    <div className="min-h-[100dvh] bg-background text-foreground flex overflow-x-clip">
       <Sidebar onNavigate={navigate} activeRoute={route} />
-      <div className="flex-1 min-w-0 flex flex-col h-screen overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col h-[100dvh] overflow-hidden">
         <Topbar />
-        <div className="flex-1 overflow-auto bg-[radial-gradient(ellipse_at_top,_rgba(120,119,198,0.08),transparent_60%)]">
+        <div className="flex-1 overflow-auto overscroll-contain bg-[radial-gradient(ellipse_at_top,_rgba(120,119,198,0.08),transparent_60%)] pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0">
           {route==='dashboard' && <Dashboard onNavigate={navigate as any} />}
           {route==='page' && selectedPageId && <PageView pageId={selectedPageId} />}
           {route==='database' && selectedDatabaseId && <DatabasePage databaseId={selectedDatabaseId} />}
@@ -117,10 +117,10 @@ export default function App() {
           {route==='templates' && <Templates />}
           {route==='trash' && <Trash />}
           {route==='shared' && <Shared />}
-          {route==='files' && <div className="max-w-[900px] mx-auto p-6 md:p-8"><h1 className="text-2xl font-bold mb-4">Files</h1><FileManager/></div>}
+          {route==='files' && <div className="max-w-[900px] mx-auto p-4 sm:p-6 md:p-8"><h1 className="text-xl sm:text-2xl font-bold mb-4">Files</h1><FileManager/></div>}
           {route==='graph' && <GraphRoute />}
         </div>
-        {saving && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-popover border shadow-lg rounded-full px-4 py-1.5 text-xs">Saving...</div>}
+        {saving && <div className="fixed bottom-20 lg:bottom-4 left-1/2 -translate-x-1/2 bg-popover border shadow-lg rounded-full px-4 py-1.5 text-xs z-40">Saving...</div>}
       </div>
 
       <CommandPalette />
@@ -152,8 +152,8 @@ async function joinShare(t: string) {
 function GraphRoute() {  const { pages, databases, blocks, records, setSelectedPage, setSelectedDatabase } = useAppStore()
   const graph = buildGraph(pages, databases, blocks, records)
   return (
-    <div className="max-w-[1100px] mx-auto p-6 md:p-8">
-      <h1 className="text-2xl font-bold mb-4">Knowledge Graph</h1>
+    <div className="max-w-[1100px] mx-auto p-4 sm:p-6 md:p-8">
+      <h1 className="text-xl sm:text-2xl font-bold mb-4">Knowledge Graph</h1>
       <KnowledgeGraphView
         {...graph}
         onSelectNode={(n) => {
@@ -170,26 +170,27 @@ function GraphRoute() {  const { pages, databases, blocks, records, setSelectedP
 }
 
 function BottomNav({ route, setRoute }: { route:string, setRoute:(r:any)=>void }) {
+  const item = (active: boolean) => `min-w-[48px] min-h-[48px] px-3 grid place-items-center rounded-xl text-lg transition-colors ${active ? 'bg-accent text-foreground' : 'text-muted-foreground'}`;
   return (
-    <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-card border-t flex items-center justify-around p-2">
-      <button onClick={()=> setRoute('dashboard')} className={`p-2 rounded-xl ${route==='dashboard' ? 'bg-accent' : ''}`}>◈</button>
-      <button onClick={()=> useAppStore.getState().setSearchOpen(true)} className="p-2">⌕</button>
-      <button onClick={()=> useAppStore.getState().createPage('Untitled')} className="w-10 h-10 rounded-xl bg-primary text-primary-foreground grid place-items-center">+</button>
-      <button onClick={()=> setRoute('templates')} className={`p-2 ${route==='templates'?'bg-accent':''}`}>▦</button>
-      <button onClick={()=> setRoute('settings')} className={`p-2 ${route==='settings'?'bg-accent':''}`}>⚙</button>
-    </div>
+    <nav aria-label="Primary" className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur border-t flex items-center justify-around px-2 pt-1" style={{ paddingBottom: 'max(0.375rem, env(safe-area-inset-bottom))' }}>
+      <button aria-label="Dashboard" onClick={()=> setRoute('dashboard')} className={item(route==='dashboard')}>◈</button>
+      <button aria-label="Search" onClick={()=> useAppStore.getState().setSearchOpen(true)} className={item(false)}>⌕</button>
+      <button aria-label="New page" onClick={()=> useAppStore.getState().createPage('Untitled')} className="w-12 h-12 -mt-4 rounded-2xl bg-primary text-primary-foreground grid place-items-center text-2xl shadow-lg border-4 border-background">+</button>
+      <button aria-label="Templates" onClick={()=> setRoute('templates')} className={item(route==='templates')}>▦</button>
+      <button aria-label="Settings" onClick={()=> setRoute('settings')} className={item(route==='settings')}>⚙</button>
+    </nav>
   )
 }
 
 function Templates() {
   const createPageFromTemplate = useAppStore(s => s.createPageFromTemplate)
   return (
-    <div className="max-w-[1000px] mx-auto p-6 md:p-8 space-y-6">
-      <h1 className="text-2xl font-bold">Templates</h1>
+    <div className="max-w-[1000px] mx-auto p-4 sm:p-6 md:p-8 space-y-6">
+      <h1 className="text-xl sm:text-2xl font-bold">Templates</h1>
       <p className="text-sm text-muted-foreground">Start from a template. Reusable block structures.</p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         {templatesSeed.map(t=> (
-          <div key={t.name} className="rounded-2xl border bg-card p-5 hover:shadow-md transition-shadow">
+          <div key={t.name} className="rounded-2xl border bg-card p-4 sm:p-5 hover:shadow-md transition-shadow">
             <div className="w-10 h-10 rounded-xl bg-violet-500/10 grid place-items-center text-lg">{t.icon}</div>
             <div className="font-semibold mt-3">{t.name}</div>
             <div className="text-xs text-muted-foreground mt-1">{t.description}</div>
@@ -197,7 +198,7 @@ function Templates() {
               <div className="text-xs border rounded-full px-2 py-1 inline-block">{t.category}</div>
               <div className="text-[11px] text-muted-foreground ml-auto">{t.blocks.length} blocks</div>
             </div>
-            <Button size="sm" className="w-full mt-4" onClick={()=> createPageFromTemplate(t.name)}>Use template</Button>
+            <Button size="sm" className="w-full mt-4 min-h-[40px]" onClick={()=> createPageFromTemplate(t.name)}>Use template</Button>
           </div>
         ))}
       </div>
@@ -209,11 +210,11 @@ function Shared() {
   const { pages } = useAppStore()
   const shared = pages.filter(p=> p.isShared)
   return (
-    <div className="max-w-[900px] mx-auto p-6 md:p-8 space-y-4">
-      <h1 className="text-2xl font-bold">Shared</h1>
+    <div className="max-w-[900px] mx-auto p-4 sm:p-6 md:p-8 space-y-4">
+      <h1 className="text-xl sm:text-2xl font-bold">Shared</h1>
       <p className="text-sm text-muted-foreground">Pages shared with workspace or public link. Manage sharing via page ••• → Share.</p>
-      {shared.length===0 ? <div className="py-12 text-center border rounded-2xl border-dashed text-muted-foreground">No shared pages yet. Open a page and click Share.</div> :
-        <div className="space-y-2">{shared.map(p=> <div key={p.id} className="p-3 rounded-xl border bg-card flex items-center gap-3"><span className="flex-1 font-medium">{p.title}</span><span className="text-xs border rounded-full px-2 py-1">{p.shareMode||'workspace'}</span></div>)}</div>
+      {shared.length===0 ? <div className="py-12 text-center border rounded-2xl border-dashed text-muted-foreground text-sm px-4">No shared pages yet. Open a page and click Share.</div> :
+        <div className="space-y-2">{shared.map(p=> <div key={p.id} className="p-3 rounded-xl border bg-card flex items-center gap-3 min-w-0"><span className="flex-1 font-medium truncate min-w-0">{p.title}</span><span className="text-xs border rounded-full px-2 py-1 shrink-0">{p.shareMode||'workspace'}</span></div>)}</div>
       }
     </div>
   )
@@ -223,15 +224,17 @@ function Trash() {
   const { pages, updatePage } = useAppStore()
   const trashed = pages.filter(p=> p.isTrashed)
   return (
-    <div className="max-w-[800px] mx-auto p-6 md:p-8 space-y-4">
-      <h1 className="text-2xl font-bold">Trash</h1>
-      {trashed.length===0 ? <div className="py-16 text-center border rounded-2xl border-dashed text-muted-foreground">Trash is empty</div> :
+    <div className="max-w-[800px] mx-auto p-4 sm:p-6 md:p-8 space-y-4">
+      <h1 className="text-xl sm:text-2xl font-bold">Trash</h1>
+      {trashed.length===0 ? <div className="py-16 text-center border rounded-2xl border-dashed text-muted-foreground text-sm px-4">Trash is empty</div> :
         <div className="space-y-2">
           {trashed.map(p=> (
-            <div key={p.id} className="flex items-center gap-3 p-3 rounded-xl border bg-card">
-              <span className="flex-1 font-medium">{p.title}</span>
-              <Button size="sm" variant="outline" onClick={()=> updatePage(p.id, { isTrashed:false })}>Restore</Button>
-              <Button size="sm" variant="ghost">Delete</Button>
+            <div key={p.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3 rounded-xl border bg-card">
+              <span className="flex-1 font-medium truncate min-w-0">{p.title}</span>
+              <span className="flex gap-2 shrink-0">
+                <Button size="sm" variant="outline" onClick={()=> updatePage(p.id, { isTrashed:false })}>Restore</Button>
+                <Button size="sm" variant="ghost">Delete</Button>
+              </span>
             </div>
           ))}
         </div>

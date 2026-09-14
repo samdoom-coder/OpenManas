@@ -73,7 +73,7 @@ export function FontPicker({ current, onSelect, onPreview, onClearPreview, onClo
   }
 
   return (
-    <div className="absolute z-30 right-0 top-full mt-2 w-[280px] bg-popover border rounded-2xl shadow-xl p-3" onMouseLeave={clearHover}>
+    <div className="absolute z-30 right-0 top-full mt-2 w-[calc(100vw-2rem)] max-w-[280px] sm:w-[280px] bg-popover border rounded-2xl shadow-xl p-3" onMouseLeave={clearHover}>
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs font-semibold">Typography</span>
         <button onClick={close} className="p-1 hover:bg-accent rounded-lg text-xs">✕</button>

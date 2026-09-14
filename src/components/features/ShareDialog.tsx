@@ -84,9 +84,9 @@ export function ShareDialog() {
       <div className="space-y-4">
         <div>
           <div className="text-xs font-medium mb-1.5">Who can access</div>
-          <div className="flex rounded-full border text-xs overflow-hidden w-fit" role="radiogroup" aria-label="Visibility">
+          <div className="flex flex-wrap rounded-2xl sm:rounded-full border text-xs overflow-hidden w-fit max-w-full" role="radiogroup" aria-label="Visibility">
             {(['private', 'workspace', 'public'] as const).map((v) => (
-              <button key={v} onClick={()=> setVisibility(v)} className={`px-3 py-1.5 capitalize ${visibility===v ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>{v}</button>
+              <button key={v} onClick={()=> setVisibility(v)} className={`px-4 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 capitalize ${visibility===v ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>{v}</button>
             ))}
           </div>
           <p className="text-[11px] text-muted-foreground mt-1.5">
@@ -103,13 +103,13 @@ export function ShareDialog() {
         ) : (
           <div>
             <div className="text-xs font-medium mb-1.5">Invite links</div>
-            <div className="flex gap-2">
-              <select value={permission} onChange={e=> setPermission(e.target.value as any)} className="h-9 px-2 rounded-xl border bg-background text-xs" aria-label="Link permission">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select value={permission} onChange={e=> setPermission(e.target.value as any)} className="h-11 sm:h-9 px-2 rounded-xl border bg-background text-sm sm:text-xs min-w-0" aria-label="Link permission">
                 <option value="view">Can view</option>
                 <option value="comment">Can comment</option>
                 <option value="edit">Can edit</option>
               </select>
-              <Button size="sm" className="flex-1" disabled={busy} onClick={()=> void create()}>
+              <Button size="sm" className="flex-1 min-h-[44px] sm:min-h-0" disabled={busy} onClick={()=> void create()}>
                 <Link2 size={14} className="mr-1"/> {busy ? 'Creating…' : 'Create link'}
               </Button>
             </div>

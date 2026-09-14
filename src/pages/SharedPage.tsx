@@ -45,7 +45,7 @@ export function SharedPage({ token, onSignIn }: { token: string; onSignIn: () =>
 
   if (status === 'loading') {
     return (
-      <div className="max-w-[760px] mx-auto p-6 md:p-10">
+      <div className="max-w-[760px] mx-auto p-4 sm:p-6 md:p-10">
         <div className="animate-pulse space-y-4">
           <div className="h-8 w-2/3 rounded-xl bg-muted" />
           <div className="h-4 w-full rounded-lg bg-muted" />
@@ -58,7 +58,7 @@ export function SharedPage({ token, onSignIn }: { token: string; onSignIn: () =>
 
   if (status === 'error' || !page) {
     return (
-      <div className="max-w-[560px] mx-auto p-6 md:p-10 text-center">
+      <div className="max-w-[560px] mx-auto p-4 sm:p-6 md:p-10 text-center">
         <div className="rounded-2xl border bg-card p-8">
           <div className="text-4xl">🔗</div>
           <h1 className="text-xl font-bold mt-3">This link didn’t work</h1>
@@ -70,7 +70,7 @@ export function SharedPage({ token, onSignIn }: { token: string; onSignIn: () =>
   }
 
   return (
-    <div className="max-w-[760px] mx-auto p-6 md:p-10 pb-20">
+    <div className="max-w-[760px] mx-auto p-4 sm:p-6 md:p-10 pb-20">
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         <span className="px-2 py-0.5 rounded-full border bg-card capitalize">Shared • can {permission}</span>
         <span className="ml-auto">Read-only preview</span>

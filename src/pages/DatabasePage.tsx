@@ -26,8 +26,8 @@ export function DatabasePage({ databaseId }: { databaseId: string }) {
   }
 
   return (
-    <div className="max-w-[1200px] mx-auto p-6 md:p-8 space-y-6">
-      <div className="flex items-start gap-4">
+    <div className="max-w-[1200px] mx-auto p-4 sm:p-6 md:p-8 space-y-5 sm:space-y-6 min-w-0">
+      <div className="flex items-start gap-3 sm:gap-4 min-w-0">
         <div className="relative">
           <button
             onClick={()=> setIconOpen(v=> !v)}
@@ -50,11 +50,11 @@ export function DatabasePage({ databaseId }: { databaseId: string }) {
               onChange={e=> setName(e.target.value)}
               onBlur={commitName}
               onKeyDown={e=> { if (e.key==='Enter') commitName(); if (e.key==='Escape') setName(null) }}
-              className="text-2xl font-bold h-auto py-1"
+              className="text-xl sm:text-2xl font-bold h-auto py-1"
               maxLength={100}
             />
           ) : (
-            <h1 onClick={()=> setName(db.name)} title="Click to rename" className="text-3xl font-bold tracking-tight truncate cursor-text hover:bg-accent/40 rounded-lg px-1 -ml-1">{db.name}</h1>
+            <h1 onClick={()=> setName(db.name)} title="Click to rename" className="text-2xl sm:text-3xl font-bold tracking-tight truncate cursor-text hover:bg-accent/40 rounded-lg px-1 -ml-1 break-anywhere">{db.name}</h1>
           )}
           {desc !== null ? (
             <Input
@@ -72,20 +72,20 @@ export function DatabasePage({ databaseId }: { databaseId: string }) {
               {db.description || 'Add a description…'}
             </p>
           )}
-          <div className="flex items-center gap-2 mt-3 text-xs">
-            <span className="px-2 py-1 rounded-full border bg-card">{db.properties.length} properties</span>
-            <span className="px-2 py-1 rounded-full border bg-card">{db.views.length} views</span>
-            <span className="px-2 py-1 rounded-full bg-muted">Updated {new Date(db.updatedAt).toLocaleDateString()}</span>
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-3 text-xs">
+            <span className="px-2 py-1 rounded-full border bg-card whitespace-nowrap">{db.properties.length} properties</span>
+            <span className="px-2 py-1 rounded-full border bg-card whitespace-nowrap">{db.views.length} views</span>
+            <span className="px-2 py-1 rounded-full bg-muted whitespace-nowrap hidden xs:inline sm:inline">Updated {new Date(db.updatedAt).toLocaleDateString()}</span>
           </div>
         </div>
-        <div className="hidden sm:flex items-center gap-1 relative">
+        <div className="flex items-center gap-0.5 sm:gap-1 relative shrink-0">
           <Button variant="ghost" size="icon" title={db.isFavorite ? 'Remove from favorites' : 'Add to favorites'} onClick={()=> toggleDatabaseFavorite(db.id)}>
             <Star size={16} className={db.isFavorite ? 'fill-amber-400 text-amber-400' : ''} />
           </Button>
           <Button variant="ghost" size="icon"><Share2 size={16}/></Button>
           <Button variant="ghost" size="icon" title="More actions" onClick={()=> { setMenuOpen(v=> !v); setConfirmDelete(false) }}><MoreHorizontal size={16}/></Button>
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-1 z-30 w-52 rounded-xl border bg-popover shadow-xl p-1.5">
+            <div className="absolute right-0 top-full mt-1 z-30 w-52 max-w-[calc(100vw-2rem)] rounded-xl border bg-popover shadow-xl p-1.5">
               {!confirmDelete ? (
                 <button
                   onClick={()=> setConfirmDelete(true)}

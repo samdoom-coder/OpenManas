@@ -150,18 +150,18 @@ export function FileManager() {
         </div>}
       </div>
 
-      <div className="rounded-2xl border bg-card">
-        <div className="p-3 border-b flex items-center gap-2">
-          <span className="font-medium text-sm flex items-center gap-2"><File size={16} /> Files in workspace</span>
+      <div className="rounded-2xl border bg-card min-w-0">
+        <div className="p-3 border-b flex flex-wrap items-center gap-2">
+          <span className="font-medium text-sm flex items-center gap-2 min-w-0"><File size={16} className="shrink-0" /> <span className="truncate">Files in workspace</span></span>
           <span className="text-xs text-muted-foreground">{list.length}</span>
-          <span className="ml-auto flex items-center gap-1">
+          <span className="ml-auto flex items-center gap-1 min-w-0">
             <span className="relative">
               <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 placeholder="Filter files..."
-                className="h-8 w-40 rounded-lg border bg-background pl-7 pr-2 text-xs outline-none focus:ring-2 focus:ring-ring"
+                className="h-10 sm:h-8 w-28 xs:w-36 sm:w-40 rounded-lg border bg-background pl-7 pr-2 text-sm sm:text-xs outline-none focus:ring-2 focus:ring-ring"
               />
             </span>
             {backendMode === 'server' && (
@@ -209,13 +209,13 @@ function FileRow({ file: f, pages, onPreview, onUseInPage, onDelete }: { file: F
         <span className="block text-xs text-muted-foreground">{formatSize(f.size)} • {new Date(f.createdAt).toLocaleDateString()}</span>
       </button>
       <div className="relative shrink-0">
-        <Button variant="ghost" size="sm" onClick={() => setChoosing(v => !v)} title="Attach to a page">
-          <Plus size={14} className="mr-1" /> Page
+        <Button variant="ghost" size="sm" className="min-h-[36px]" onClick={() => setChoosing(v => !v)} title="Attach to a page">
+          <Plus size={14} className="sm:mr-1" /> <span className="hidden sm:inline">Page</span>
         </Button>
         {choosing && (
           <>
             <div className="fixed inset-0 z-30" onClick={() => setChoosing(false)} />
-            <div className="absolute right-0 bottom-full mb-1 z-40 w-60 rounded-xl border bg-popover shadow-xl p-1.5">
+            <div className="absolute right-0 bottom-full mb-1 z-40 w-60 max-w-[calc(100vw-2rem)] rounded-xl border bg-popover shadow-xl p-1.5">
               <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">Attach “{f.filename.length > 24 ? `${f.filename.slice(0, 23)}…` : f.filename}” to…</div>
               {pages.length === 0 && <div className="px-2 py-3 text-xs text-muted-foreground">No pages yet — create one first.</div>}
               {pages.map(p => (

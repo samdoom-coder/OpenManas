@@ -129,7 +129,7 @@ export function IconPicker({
   }
 
   return (
-    <div className="w-[340px] overflow-hidden rounded-2xl border bg-popover text-popover-foreground shadow-xl">
+    <div className="w-[calc(100vw-2rem)] max-w-[340px] sm:w-[340px] overflow-hidden rounded-2xl border bg-popover text-popover-foreground shadow-xl">
       {/* header: preview + search + close */}
       <div className="flex items-center gap-2 border-b p-2">
         <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl bg-muted text-xl">

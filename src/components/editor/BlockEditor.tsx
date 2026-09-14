@@ -71,12 +71,12 @@ export function BlockEditor({ pageId }: { pageId: string }) {
   }
 
   const historyBar = (
-    <div className="flex items-center gap-1 pb-2">
+    <div className="flex items-center gap-1.5 pb-2 overflow-x-auto scrollbar-none">
       <button
         onClick={undo}
         disabled={!canUndo}
         title="Undo (Ctrl+Z)"
-        className="p-1.5 rounded-lg border bg-card text-xs flex items-center gap-1 disabled:opacity-40 hover:bg-accent"
+        className="px-3 py-2 sm:p-1.5 min-h-[40px] sm:min-h-0 rounded-lg border bg-card text-xs flex items-center gap-1 disabled:opacity-40 hover:bg-accent shrink-0"
       >
         <Undo2 size={13} /> Undo
       </button>
@@ -84,26 +84,26 @@ export function BlockEditor({ pageId }: { pageId: string }) {
         onClick={redo}
         disabled={!canRedo}
         title="Redo (Ctrl+Shift+Z)"
-        className="p-1.5 rounded-lg border bg-card text-xs flex items-center gap-1 disabled:opacity-40 hover:bg-accent"
+        className="px-3 py-2 sm:p-1.5 min-h-[40px] sm:min-h-0 rounded-lg border bg-card text-xs flex items-center gap-1 disabled:opacity-40 hover:bg-accent shrink-0"
       >
         <Redo2 size={13} /> Redo
       </button>
-      <span className="text-[11px] text-muted-foreground ml-1 hidden sm:inline">Ctrl+Z / Ctrl+Shift+Z</span>
+      <span className="text-[11px] text-muted-foreground ml-1 hidden sm:inline whitespace-nowrap">Ctrl+Z / Ctrl+Shift+Z</span>
     </div>
   )
 
   if (pageBlocks.length===0) {
     return (
-      <div className="py-8">
+      <div className="py-6 sm:py-8">
         {historyBar}
         <EmptyBlockState onClick={()=> handleNew(0)} />
-        <button onClick={()=> handleNew(0)} className="mt-4 w-full py-2 rounded-xl border border-dashed text-sm text-muted-foreground hover:bg-accent">+ Add first block</button>
+        <button onClick={()=> handleNew(0)} className="mt-4 w-full py-3 min-h-[48px] rounded-xl border border-dashed text-sm text-muted-foreground hover:bg-accent">+ Add first block</button>
       </div>
     )
   }
 
   return (
-    <div className="space-y-1 py-2">
+    <div className="space-y-1 py-2 min-w-0">
       {historyBar}
       {pageBlocks.map((block, idx)=> (
         <div key={block.id} className="relative">
@@ -146,7 +146,7 @@ export function BlockEditor({ pageId }: { pageId: string }) {
         />
         </div>
       ))}
-      <button onClick={()=> handleNew()} className="mt-4 flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-muted-foreground hover:bg-accent border border-dashed w-full justify-center">
+      <button onClick={()=> handleNew()} className="mt-4 flex items-center gap-2 px-3 py-3 min-h-[48px] rounded-xl text-sm text-muted-foreground hover:bg-accent border border-dashed w-full justify-center">
         + Add block — type “/” for commands
       </button>
     </div>
@@ -573,10 +573,10 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
   // Left gutter: [+] adds a new empty block below this one, [grip] drag/reorder + options
   const renderDragMenu = () => (
     <>
-      <div className="absolute left-0 top-1 z-10 flex -translate-x-full flex-col gap-1 pr-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 max-sm:opacity-100 transition-opacity">
+      <div className="absolute left-0 top-1 z-10 flex -translate-x-full flex-col gap-1 pr-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 max-sm:left-auto max-sm:right-1 max-sm:top-1 max-sm:translate-x-0 max-sm:flex-row max-sm:pr-0 max-sm:opacity-100 transition-opacity">
         <button
           onClick={(e)=> { e.stopPropagation(); onAddBelow() }}
-          className="p-0.5 sm:p-1 rounded-lg border shadow-sm bg-card hover:bg-accent hover:text-violet-600 cursor-pointer flex items-center justify-center"
+          className="p-2 sm:p-1 min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 grid place-items-center rounded-lg border shadow-sm bg-card hover:bg-accent hover:text-violet-600 cursor-pointer"
           title="Add block below"
           aria-label="Add block below"
         >
@@ -585,14 +585,15 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         <button
           data-drag-handle
           onClick={(e)=> { e.stopPropagation(); setActionsMenuOpen(v=>!v) }}
-          className={cn("p-0.5 sm:p-1 rounded-lg border shadow-sm bg-card hover:bg-accent cursor-grab flex items-center justify-center", actionsMenuOpen && "opacity-100 bg-accent border-violet-200")}
+          className={cn("p-2 sm:p-1 min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 grid place-items-center rounded-lg border shadow-sm bg-card hover:bg-accent cursor-grab", actionsMenuOpen && "opacity-100 bg-accent border-violet-200")}
           title="Click for options • Drag to reorder"
+          aria-label="Block options"
         >
           <GripVertical size={14} />
         </button>
       </div>
       {actionsMenuOpen && (
-        <div ref={menuRef} className="absolute left-0 top-12 z-20 bg-popover border rounded-2xl shadow-xl p-3 w-[340px] max-w-[92vw] animate-in fade-in">
+        <div ref={menuRef} className="absolute left-0 sm:left-0 right-0 sm:right-auto top-12 z-30 bg-popover border rounded-2xl shadow-xl p-3 w-[340px] max-w-[calc(100vw-2rem)] animate-in fade-in">
           <div className="px-1 pb-2 text-[10px] font-semibold tracking-widest text-muted-foreground uppercase flex items-center justify-between">
             <span className="flex items-center gap-1.5"><Settings size={12}/> Block options</span>
             <button onClick={()=> setActionsMenuOpen(false)} className="p-1 hover:bg-accent rounded-lg text-xs">✕</button>
@@ -637,17 +638,17 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
   const renderSelectionBubble = () => {
     if (!hasSelection || !focused) return null
     return (
-      <div className="absolute -top-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-popover border rounded-xl shadow-xl p-1.5 max-w-[95vw] overflow-x-auto">
-        <button onMouseDown={e=>{e.preventDefault(); document.execCommand('bold'); handleInput()}} className="px-2.5 py-1.5 rounded-lg hover:bg-accent font-bold text-sm shrink-0">B</button>
-        <button onMouseDown={e=>{e.preventDefault(); document.execCommand('italic'); handleInput()}} className="px-2.5 py-1.5 rounded-lg hover:bg-accent italic text-sm shrink-0">I</button>
-        <button onMouseDown={e=>{e.preventDefault(); document.execCommand('underline'); handleInput()}} className="px-2.5 py-1.5 rounded-lg hover:bg-accent underline text-sm shrink-0">U</button>
-        <button onMouseDown={e=>{e.preventDefault(); document.execCommand('strikeThrough'); handleInput()}} className="px-2.5 py-1.5 rounded-lg hover:bg-accent line-through text-sm shrink-0">S</button>
+      <div className="absolute -top-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-popover border rounded-xl shadow-xl p-1.5 w-max max-w-[calc(100vw-3rem)] overflow-x-auto scrollbar-none overscroll-contain">
+        <button onMouseDown={e=>{e.preventDefault(); document.execCommand('bold'); handleInput()}} className="px-3 py-2.5 sm:px-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg hover:bg-accent font-bold text-sm shrink-0">B</button>
+        <button onMouseDown={e=>{e.preventDefault(); document.execCommand('italic'); handleInput()}} className="px-3 py-2.5 sm:px-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg hover:bg-accent italic text-sm shrink-0">I</button>
+        <button onMouseDown={e=>{e.preventDefault(); document.execCommand('underline'); handleInput()}} className="px-3 py-2.5 sm:px-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg hover:bg-accent underline text-sm shrink-0">U</button>
+        <button onMouseDown={e=>{e.preventDefault(); document.execCommand('strikeThrough'); handleInput()}} className="px-3 py-2.5 sm:px-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg hover:bg-accent line-through text-sm shrink-0">S</button>
         <div className="w-px h-6 bg-border mx-1 shrink-0" />
-        <button onMouseDown={e=>{e.preventDefault(); setColorOpen(true)}} className="p-1.5 rounded-lg hover:bg-accent shrink-0" title="Color"><Palette size={14}/></button>
-        <button onMouseDown={e=>{e.preventDefault(); setCommentOpen(true)}} className="p-1.5 rounded-lg hover:bg-accent relative shrink-0" title="Comment"><MessageSquare size={14}/>{commentCount ? <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] bg-violet-500 text-white text-[9px] rounded-full grid place-items-center px-0.5">{commentCount}</span> : null}</button>
-        <button onMouseDown={e=>{e.preventDefault(); onDuplicate()}} className="p-1.5 rounded-lg hover:bg-accent shrink-0" title="Duplicate"><Copy size={14}/></button>
+        <button onMouseDown={e=>{e.preventDefault(); setColorOpen(true)}} className="p-2.5 sm:p-1.5 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 grid place-items-center rounded-lg hover:bg-accent shrink-0" title="Color"><Palette size={14}/></button>
+        <button onMouseDown={e=>{e.preventDefault(); setCommentOpen(true)}} className="p-2.5 sm:p-1.5 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 grid place-items-center rounded-lg hover:bg-accent relative shrink-0" title="Comment"><MessageSquare size={14}/>{commentCount ? <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] bg-violet-500 text-white text-[9px] rounded-full grid place-items-center px-0.5">{commentCount}</span> : null}</button>
+        <button onMouseDown={e=>{e.preventDefault(); onDuplicate()}} className="p-2.5 sm:p-1.5 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 grid place-items-center rounded-lg hover:bg-accent shrink-0" title="Duplicate"><Copy size={14}/></button>
         <div className="w-px h-6 bg-border mx-1 shrink-0" />
-        <button onMouseDown={e=>{e.preventDefault(); setActionsMenuOpen(true)}} className="px-3 py-1.5 rounded-lg bg-violet-500 text-white hover:bg-violet-600 text-xs font-medium whitespace-nowrap shrink-0">More</button>
+        <button onMouseDown={e=>{e.preventDefault(); setActionsMenuOpen(true)}} className="px-3 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-violet-500 text-white hover:bg-violet-600 text-xs font-medium whitespace-nowrap shrink-0">More</button>
       </div>
     )
   }
@@ -661,7 +662,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         {renderDragMenu()}
         {renderCommentHover()}
         <div className="w-full py-2"><hr className="border-t" /></div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        {colorOpen && <div className="absolute right-0 top-9 z-30 max-w-[calc(100vw-2rem)]"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -697,7 +698,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           {!hasSelection && focused && showToolbar && <FloatingToolbar onFormat={(cmd)=> {document.execCommand(cmd); handleInput()}} />}
           {slashOpen && <SlashMenu query={slashQuery} onSelect={handleSlashSelect} onClose={handleCloseSlash} />}
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        {colorOpen && <div className="absolute right-0 top-9 z-30 max-w-[calc(100vw-2rem)]"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -725,7 +726,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           )}
           <div className="text-xs text-muted-foreground px-1">Caption: <span ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} onMouseUp={handleMouseUp} data-placeholder="Add caption..." className="outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground" /></div>
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        {colorOpen && <div className="absolute right-0 top-9 z-30 max-w-[calc(100vw-2rem)]"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -753,7 +754,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           ) : null}
           <FileUploadSimple onUpload={(url)=> onChange({ content:url })} accept={block.type==='audio' ? 'audio/*' : '*/*'} />
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        {colorOpen && <div className="absolute right-0 top-9 z-30 max-w-[calc(100vw-2rem)]"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -779,7 +780,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           ) : null}
           <input defaultValue={block.content} onBlur={e=> onChange({ content:e.target.value })} placeholder="Paste video URL (YouTube, mp4) — e.g. https://www.youtube.com/watch?v=..." className="w-full text-sm border rounded-xl px-3 py-2 bg-background" />
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        {colorOpen && <div className="absolute right-0 top-9 z-30 max-w-[calc(100vw-2rem)]"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -796,7 +797,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         <div className="w-full">
           <TableBlock content={block.content} onChange={(html)=> onChange({ content: html })} />
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        {colorOpen && <div className="absolute right-0 top-9 z-30 max-w-[calc(100vw-2rem)]"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -813,7 +814,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         <div className="w-full">
           <ChartBlockView content={block.content} onChange={(json)=> onChange({ content: json })} />
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        {colorOpen && <div className="absolute right-0 top-9 z-30 max-w-[calc(100vw-2rem)]"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -830,7 +831,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         <div className="w-full">
           <FormBlockView block={block} onChange={onChange} />
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        {colorOpen && <div className="absolute right-0 top-9 z-30 max-w-[calc(100vw-2rem)]"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -875,7 +876,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           />
           {slashOpen && <SlashMenu query={slashQuery} onSelect={handleSlashSelect} onClose={handleCloseSlash} />}
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        {colorOpen && <div className="absolute right-0 top-9 z-30 max-w-[calc(100vw-2rem)]"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -891,7 +892,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         <div className="w-full min-w-0">
           <BookmarkBlockView block={block} onChange={onChange} onDelete={onDelete} />
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        {colorOpen && <div className="absolute right-0 top-9 z-30 max-w-[calc(100vw-2rem)]"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -909,7 +910,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
           <div ref={contentRef} contentEditable suppressContentEditableWarning onInput={handleInput} onKeyDown={handleKeyDown} onMouseUp={handleMouseUp} data-placeholder="E = mc^2" className="min-h-[40px] p-3 rounded-xl border bg-muted font-mono text-center text-lg empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground outline-none" />
           <div className="text-xs text-muted-foreground mt-1 text-center">Rendered: <span className="font-mono">{contentRef.current?.innerText||block.content}</span></div>
         </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        {colorOpen && <div className="absolute right-0 top-9 z-30 max-w-[calc(100vw-2rem)]"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -972,7 +973,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
             {block.type==='database_embed' && dbChosen && viewChosen && <DatabaseEmbedCard block={block} onChange={onChange} />}
             {block.type==='page_embed' && block.content && (()=> { const pg:any = pages.find((p:any)=> p.id===block.content); return pg ? <div className="mt-3 p-3 rounded-xl border bg-card"><div className="text-sm font-medium flex items-center gap-1.5"><PageIconInline page={pg} /> {pg.title}</div><div className="text-xs text-muted-foreground line-clamp-2">{pg.description||'Page preview'}</div><button onClick={()=> useAppStore.getState().setSelectedPage(pg.id)} className="mt-2 text-xs text-violet-600 hover:underline">Open →</button></div> : null })()}
           </div>
-        {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+        {colorOpen && <div className="absolute right-0 top-9 z-30 max-w-[calc(100vw-2rem)]"><ColorPicker colors={colors} current={block.properties} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
         <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
       </div>
     )
@@ -1049,7 +1050,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
         {slashOpen && <SlashMenu query={slashQuery} onSelect={handleSlashSelect} onClose={handleCloseSlash} />}
       </div>
 
-      {colorOpen && <div className="absolute right-1 top-9 z-30"><ColorPicker colors={colors} current={block.properties as any} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
+      {colorOpen && <div className="absolute right-0 top-9 z-30 max-w-[calc(100vw-2rem)]"><ColorPicker colors={colors} current={block.properties as any} preview={stylePreview} inlineMode={hasSelection} onPreview={previewStyle} onClearPreview={clearStylePreview} onSelect={commitColor} onClose={closeColor} /></div>}
       <CommentModal open={commentOpen} onClose={()=> setCommentOpen(false)} blockId={block.id} />
     </div>
   )
@@ -1851,7 +1852,7 @@ function SlashMenu({ query, onSelect, onClose }: { query:string, onSelect:(t:str
   }, [idx, filtered])
   useEffect(()=> setIdx(0), [query])
   return (
-    <div className="absolute left-0 top-full mt-2 w-[340px] bg-popover border rounded-2xl shadow-xl p-2 z-20 max-h-[360px] overflow-auto">
+    <div className="absolute left-0 top-full mt-2 w-[calc(100vw-3rem)] max-w-[340px] bg-popover border rounded-2xl shadow-xl p-2 z-30 max-h-[50dvh] sm:max-h-[360px] overflow-y-auto overscroll-contain">
       <div className="px-2 py-1 text-[11px] font-semibold tracking-widest text-muted-foreground uppercase">Slash commands — {filtered.length} {filtered.length>30 ? '(showing 30)' : ''}</div>
       {filtered.slice(0,30).map((c,i)=> (
         <button key={c.id} onMouseDown={e=>{e.preventDefault(); onSelect(c.blockType)}} className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left ${i===idx ? 'bg-accent' : 'hover:bg-accent'}`}>

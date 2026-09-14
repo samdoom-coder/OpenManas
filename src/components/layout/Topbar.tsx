@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useAppStore } from '@/stores/appStore'
-import { Search, Command, Bell, Share2, Star, MoreHorizontal, History, Sparkles, ChevronRight, Copy, FolderInput, Archive, Trash2, FileDown, FileJson } from 'lucide-react'
+import { Search, Command, Bell, Share2, Star, MoreHorizontal, History, Sparkles, ChevronRight, Copy, FolderInput, Archive, Trash2, FileDown, FileJson, Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { formatRelative } from '@/lib/utils'
 import { PageIconInline } from '@/components/ui/pageIcon'
 import { PresenceAvatars, CollabStatusDot } from '@/components/features/Presence'
 import { openShare } from '@/components/features/ShareDialog'
 import { openNotifications } from '@/components/features/NotificationCenter'
+import { openMobileSidebar } from '@/components/layout/Sidebar'
 import { pageToMarkdown, pageToJson, exportFilename } from '@/lib/pageExport'
 import { downloadFile } from '@/lib/csvUtils'
 import { useToast } from '@/components/ui/toast'
@@ -24,36 +24,56 @@ export function Topbar() {
   }
 
   return (
-    <div className="h-[56px] border-b bg-card/50 backdrop-blur flex items-center gap-3 px-4 shrink-0 sticky top-0 z-20">
+    <div className="min-h-[56px] border-b bg-card/80 backdrop-blur flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-1.5 shrink-0 sticky top-0 z-20" style={{ paddingTop: 'max(0.375rem, env(safe-area-inset-top))' }}>
+      {/* Hamburger — mobile only, opens sidebar drawer */}
+      <button
+        onClick={openMobileSidebar}
+        className="lg:hidden p-2 -ml-1 rounded-xl hover:bg-accent shrink-0 min-w-[40px] min-h-[40px] grid place-items-center"
+        aria-label="Open menu"
+      >
+        <Menu size={18} />
+      </button>
       <div className="flex items-center gap-1 text-sm text-muted-foreground min-w-0 flex-1">
-        {page ? breadcrumb.map((b, i)=> (
-          <span key={b.id} className="flex items-center gap-1 truncate">
-            {i>0 && <ChevronRight size={14} className="shrink-0"/>}
-            <span className={i===breadcrumb.length-1 ? "text-foreground font-medium truncate flex items-center gap-1" : "hover:text-foreground cursor-pointer truncate flex items-center gap-1"}><PageIconInline page={b} /> {b.title}</span>
-          </span>
-        )) : db ? <span className="text-foreground font-medium flex items-center gap-2">▦ {db.name}</span> : <span className="text-foreground font-medium">Dashboard</span>}
+        {page ? (
+          // Mobile: only last crumb to save space. Desktop: full trail.
+          <>
+            <span className="flex items-center gap-1 truncate lg:hidden">
+              <span className="text-foreground font-medium truncate flex items-center gap-1.5 min-w-0"><PageIconInline page={breadcrumb[breadcrumb.length-1]} /> <span className="truncate">{breadcrumb[breadcrumb.length-1]?.title}</span></span>
+            </span>
+            <span className="hidden lg:flex items-center gap-1 truncate">
+              {breadcrumb.map((b, i)=> (
+                <span key={b.id} className="flex items-center gap-1 truncate">
+                  {i>0 && <ChevronRight size={14} className="shrink-0"/>}
+                  <span className={i===breadcrumb.length-1 ? "text-foreground font-medium truncate flex items-center gap-1" : "hover:text-foreground cursor-pointer truncate flex items-center gap-1"}><PageIconInline page={b} /> {b.title}</span>
+                </span>
+              ))}
+            </span>
+          </>
+        ) : db ? <span className="text-foreground font-medium flex items-center gap-2 truncate"><span className="shrink-0">▦</span> <span className="truncate">{db.name}</span></span> : <span className="text-foreground font-medium">Dashboard</span>}
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0">
         <div className="hidden md:flex items-center gap-1 mr-2">
           <span className="text-xs text-muted-foreground hidden lg:inline">Autosaved</span>
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
         </div>
-        <CollabStatusDot />
-        <PresenceAvatars />
+        <div className="hidden sm:flex items-center gap-1">
+          <CollabStatusDot />
+          <PresenceAvatars />
+        </div>
 
-        <button onClick={()=> setSearchOpen(true)} className="hidden sm:flex items-center gap-2 px-3 h-8 rounded-xl border bg-background hover:bg-accent text-sm text-muted-foreground">
-          <Search size={14}/> Search <span className="ml-2 hidden lg:inline-flex items-center gap-1 border rounded-md px-1.5 py-0.5 text-xs">⌘K</span>
+        <button onClick={()=> setSearchOpen(true)} aria-label="Search" className="flex items-center justify-center w-9 h-9 sm:w-auto sm:h-8 sm:px-3 rounded-xl border bg-background hover:bg-accent text-sm text-muted-foreground shrink-0">
+          <Search size={15}/><span className="hidden sm:inline ml-2">Search</span> <span className="ml-2 hidden lg:inline-flex items-center gap-1 border rounded-md px-1.5 py-0.5 text-xs">⌘K</span>
         </button>
-        <Button variant="ghost" size="icon" onClick={()=> setCommandOpen(true)} title="Command palette (Ctrl+K)"><Command size={16}/></Button>
+        <Button variant="ghost" size="icon" onClick={()=> setCommandOpen(true)} title="Command palette (Ctrl+K)" className="hidden sm:inline-flex"><Command size={16}/></Button>
 
         {page && (
           <>
-            <Button variant="ghost" size="icon" onClick={()=> useAppStore.getState().toggleFavorite(page.id)}><Star size={16} className={page.isFavorite ? "fill-amber-400 text-amber-400" : ""}/></Button>
-            <Button variant="ghost" size="icon" title="Share" onClick={()=> openShare(page.id)}><Share2 size={16}/></Button>
-            <Button variant="ghost" size="icon" title="Version history" onClick={scrollToHistory}><History size={16}/></Button>
+            <Button variant="ghost" size="icon" onClick={()=> useAppStore.getState().toggleFavorite(page.id)} className="hidden sm:inline-flex" aria-label="Favorite"><Star size={16} className={page.isFavorite ? "fill-amber-400 text-amber-400" : ""}/></Button>
+            <Button variant="ghost" size="icon" title="Share" onClick={()=> openShare(page.id)} aria-label="Share"><Share2 size={16}/></Button>
+            <Button variant="ghost" size="icon" title="Version history" onClick={scrollToHistory} className="hidden sm:inline-flex" aria-label="History"><History size={16}/></Button>
             <PageMenu pageId={page.id} />
-            <Button variant="secondary" size="sm" className="hidden sm:inline-flex"><Sparkles size={14} className="mr-1"/> Ask AI</Button>
+            <Button variant="secondary" size="sm" className="hidden md:inline-flex"><Sparkles size={14} className="mr-1"/> Ask AI</Button>
           </>
         )}
 
@@ -131,7 +151,7 @@ function PageMenu({ pageId }: { pageId: string }) {
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={close} />
-          <div className="absolute right-0 top-full mt-2 z-40 w-60 rounded-xl border bg-popover shadow-xl p-1.5">
+          <div className="absolute right-0 top-full mt-2 z-40 w-60 max-w-[calc(100vw-2rem)] rounded-xl border bg-popover shadow-xl p-1.5">
             <MenuItem icon={<Copy size={14} />} label="Duplicate" onClick={act(doDuplicate)} />
             <MenuItem icon={<FolderInput size={14} />} label="Move to…" onClick={act(doMove)} />
             <MenuItem

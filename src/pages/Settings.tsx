@@ -40,12 +40,12 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 
 function Row({ label, desc, right }: { label: string; desc?: string; right: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2">
-      <div className="min-w-0">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 py-2.5">
+      <div className="min-w-0 flex-1">
         <div className="text-sm font-medium">{label}</div>
-        {desc && <div className="text-xs text-muted-foreground mt-0.5">{desc}</div>}
+        {desc && <div className="text-xs text-muted-foreground mt-0.5 break-anywhere">{desc}</div>}
       </div>
-      <div className="shrink-0">{right}</div>
+      <div className="shrink-0 flex sm:block">{right}</div>
     </div>
   )
 }
@@ -175,23 +175,23 @@ export function Settings() {
   }
 
   return (
-    <div className="max-w-[900px] mx-auto p-6 md:p-8 space-y-6">
+    <div className="max-w-[900px] mx-auto p-4 sm:p-6 md:p-8 space-y-5 sm:space-y-6 min-w-0">
       <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h1 className="text-xl sm:text-2xl font-bold">Settings</h1>
+        <p className="text-sm text-muted-foreground mt-1 break-anywhere">
           {stats.pages} pages · {stats.databases} databases · {stats.records} records · {storageUsage.kb} KB local
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="space-y-4">
-          <nav aria-label="Settings sections" className="rounded-2xl border bg-card p-2 space-y-1 lg:sticky lg:top-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 min-w-0">
+        <div className="space-y-4 min-w-0">
+          <nav aria-label="Settings sections" className="rounded-2xl border bg-card p-2 lg:space-y-1 lg:block flex lg:flex-col gap-1 overflow-x-auto scrollbar-none snap-x-scroll lg:sticky lg:top-4">
             {TABS.map(t => (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 aria-current={tab === t.id ? 'page' : undefined}
-                className={`w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-2 ${tab === t.id ? 'bg-accent font-medium' : 'hover:bg-accent text-muted-foreground'}`}
+                className={`shrink-0 snap-start text-left px-3 py-2.5 min-h-[44px] rounded-xl text-sm flex items-center gap-2 whitespace-nowrap ${tab === t.id ? 'bg-accent font-medium' : 'hover:bg-accent text-muted-foreground'}`}
               >
                 <span className="flex-1">{t.label}</span>
                 <span className="text-[11px] text-muted-foreground hidden xl:inline">{t.hint}</span>
@@ -204,7 +204,7 @@ export function Settings() {
           </div>
         </div>
 
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-5 sm:space-y-6 min-w-0">
           {tab === 'account' && (
             <Card className="rounded-2xl">
               <CardHeader><h3 className="font-semibold">Account</h3></CardHeader>
