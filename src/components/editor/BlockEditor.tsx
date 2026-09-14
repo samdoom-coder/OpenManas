@@ -37,6 +37,15 @@ const EMBED_VIEWS = [
   { type: 'timeline', label: 'Timeline', Icon: Clock },
 ] as const
 
+// Block types with a focusable editor — on mobile their ⋯ handle auto-hides
+// until focused. Every other type keeps its handle always visible on mobile
+// (nothing to focus, so gating would strand the options sheet).
+const TEXT_LIKE_TYPES = new Set([
+  'paragraph', 'heading1', 'heading2', 'heading3',
+  'bulleted_list', 'numbered_list', 'quote', 'callout',
+  'toggle', 'todo', 'code',
+])
+
 export function BlockEditor({ pageId }: { pageId: string }) {
   const { blocks, addBlock, updateBlock, deleteBlock, moveBlock, duplicateBlock } = useAppStore()
   const pageBlocks = blocks.filter(b=>b.pageId===pageId).sort((a,b)=> a.position-b.position)
@@ -571,23 +580,33 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
 
   // helper to render drag-handle menu (full width pattern)
   // Left gutter: [+] adds a new empty block below this one, [grip] drag/reorder + options
+  // Mobile: a single ⋯ handle that auto-hides until the block is focused, so the
+  // buttons never cover the text while reading. "+" and comment live inside the
+  // options sheet on mobile (desktop keeps the inline hover buttons).
+  // Non-text blocks (image, divider, embeds…) have nothing focusable, so their
+  // handle stays visible — otherwise mobile users could never reach it.
+  const isTextLike = TEXT_LIKE_TYPES.has(block.type as string)
+  // Grace timer: tapping ⋯ blurs the editor (mousedown) before click fires.
+  // Hiding instantly would set pointer-events:none mid-tap and swallow the
+  // click, making the button look dead — so linger 400ms after blur.
+  const hideTimer = useRef<number | null>(null)
+  const [handleVisible, setHandleVisible] = useState(false)
+  useEffect(() => {
+    if (focused || actionsMenuOpen || !isTextLike) {
+      if (hideTimer.current) { window.clearTimeout(hideTimer.current); hideTimer.current = null }
+      setHandleVisible(true)
+    } else if (hideTimer.current === null) {
+      hideTimer.current = window.setTimeout(() => { hideTimer.current = null; setHandleVisible(false) }, 400)
+    }
+  }, [focused, actionsMenuOpen, isTextLike])
+  useEffect(() => () => { if (hideTimer.current) window.clearTimeout(hideTimer.current) }, [])
+  const showMobileHandle = handleVisible
   const renderDragMenu = () => (
     <>
-      <div className="absolute left-0 top-1 z-10 flex -translate-x-full flex-col gap-1 pr-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 max-sm:left-auto max-sm:right-1 max-sm:top-1 max-sm:translate-x-0 max-sm:flex-row max-sm:pr-0 max-sm:opacity-100 transition-opacity">
-        {/* Mobile-only comment shortcut — lives in this row so it can never
-            overlap the grip button (the standalone hover button is desktop-only). */}
-        <button
-          onClick={(e)=> { e.stopPropagation(); setCommentOpen(true) }}
-          className="sm:hidden p-2 min-w-[36px] min-h-[36px] grid place-items-center rounded-lg border shadow-sm bg-card hover:bg-accent relative"
-          title={commentCount ? `${commentCount} comment${commentCount>1?'s':''} — click to open` : "Add comment"}
-          aria-label="Add comment"
-        >
-          <MessageSquare size={14} className={commentCount ? "text-violet-600" : "text-muted-foreground"} />
-          {commentCount ? <span className="absolute -top-1 -right-1 min-w-[14px] h-[12px] px-0.5 bg-violet-500 text-white text-[8px] font-bold rounded-full grid place-items-center leading-none">{commentCount>9?'9+':commentCount}</span> : null}
-        </button>
+      <div className={cn("absolute left-0 top-1 z-10 flex -translate-x-full flex-col gap-1 pr-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 transition-opacity", "max-sm:left-auto max-sm:right-1 max-sm:top-1 max-sm:translate-x-0 max-sm:flex-row max-sm:pr-0", showMobileHandle ? "max-sm:opacity-100" : "max-sm:pointer-events-none max-sm:opacity-0")}>
         <button
           onClick={(e)=> { e.stopPropagation(); onAddBelow() }}
-          className="p-2 sm:p-1 min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 grid place-items-center rounded-lg border shadow-sm bg-card hover:bg-accent hover:text-violet-600 cursor-pointer"
+          className="hidden sm:grid p-2 sm:p-1 min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 place-items-center rounded-lg border shadow-sm bg-card hover:bg-accent hover:text-violet-600 cursor-pointer"
           title="Add block below"
           aria-label="Add block below"
         >
@@ -609,6 +628,8 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
             <span className="flex items-center gap-1.5"><Settings size={12}/> Block options</span>
             <button onClick={()=> setActionsMenuOpen(false)} className="p-1 hover:bg-accent rounded-lg text-xs">✕</button>
           </div>
+          {/* Mobile: "+" and comment buttons are hidden inline, so they live here. */}
+          <button onClick={()=> { setActionsMenuOpen(false); onAddBelow() }} className="sm:hidden w-full flex items-center justify-center gap-1.5 py-2.5 min-h-[44px] rounded-xl border hover:bg-accent text-xs font-medium mb-2"><Plus size={14}/> Add block below</button>
           <BlockActions
             block={block}
             onChange={onChange}
