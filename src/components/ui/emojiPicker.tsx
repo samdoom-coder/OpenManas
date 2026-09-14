@@ -23,7 +23,7 @@ export function EmojiPicker({ onSelect, onClose }: { onSelect: (emoji: string) =
   }
 
   return (
-    <div className="absolute z-30 w-[calc(100vw-2rem)] max-w-[320px] sm:w-[320px] overflow-hidden rounded-2xl border bg-popover text-popover-foreground shadow-xl">
+    <div className="fixed left-1/2 top-[110px] z-50 -translate-x-1/2 sm:absolute sm:left-0 sm:top-full sm:z-30 sm:mt-0 sm:translate-x-0 w-[calc(100vw-2rem)] max-w-[320px] sm:w-[320px] max-h-[70dvh] sm:max-h-none overflow-y-auto overscroll-contain rounded-2xl border bg-popover text-popover-foreground shadow-xl">
       <div className="flex items-center gap-2 border-b p-2">
         <input
           autoFocus

@@ -574,6 +574,17 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
   const renderDragMenu = () => (
     <>
       <div className="absolute left-0 top-1 z-10 flex -translate-x-full flex-col gap-1 pr-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 max-sm:left-auto max-sm:right-1 max-sm:top-1 max-sm:translate-x-0 max-sm:flex-row max-sm:pr-0 max-sm:opacity-100 transition-opacity">
+        {/* Mobile-only comment shortcut — lives in this row so it can never
+            overlap the grip button (the standalone hover button is desktop-only). */}
+        <button
+          onClick={(e)=> { e.stopPropagation(); setCommentOpen(true) }}
+          className="sm:hidden p-2 min-w-[36px] min-h-[36px] grid place-items-center rounded-lg border shadow-sm bg-card hover:bg-accent relative"
+          title={commentCount ? `${commentCount} comment${commentCount>1?'s':''} — click to open` : "Add comment"}
+          aria-label="Add comment"
+        >
+          <MessageSquare size={14} className={commentCount ? "text-violet-600" : "text-muted-foreground"} />
+          {commentCount ? <span className="absolute -top-1 -right-1 min-w-[14px] h-[12px] px-0.5 bg-violet-500 text-white text-[8px] font-bold rounded-full grid place-items-center leading-none">{commentCount>9?'9+':commentCount}</span> : null}
+        </button>
         <button
           onClick={(e)=> { e.stopPropagation(); onAddBelow() }}
           className="p-2 sm:p-1 min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 grid place-items-center rounded-lg border shadow-sm bg-card hover:bg-accent hover:text-violet-600 cursor-pointer"
@@ -627,7 +638,7 @@ function BlockRow({ block, onChange, onDelete, onDuplicate, onMove, onSlash, sla
   const renderCommentHover = () => (
     <button
       onClick={(e)=>{ e.stopPropagation(); setCommentOpen(true) }}
-      className="absolute right-1 top-1.5 z-10 p-1 rounded-md bg-card border shadow-sm hover:bg-accent opacity-0 group-hover:opacity-100 transition-opacity"
+      className="absolute right-1 top-1.5 z-10 p-1 rounded-md bg-card border shadow-sm hover:bg-accent opacity-0 group-hover:opacity-100 transition-opacity max-sm:hidden"
       title={commentCount ? `${commentCount} comment${commentCount>1?'s':''} — click to open` : "Add comment"}
     >
       <MessageSquare size={12} className={commentCount ? "text-violet-600" : "text-muted-foreground"} />
@@ -1234,7 +1245,7 @@ function ColorPicker({ colors, current, preview, inlineMode, onPreview, onClearP
   const previewColor = hover?.color ?? (preview?.color as string | undefined) ?? current?.color ?? ''
   const previewBg = hover?.background ?? (preview?.background as string | undefined) ?? current?.background ?? ''
   return (
-    <div className="absolute right-0 top-full mt-2 z-20 bg-popover border rounded-2xl shadow-xl p-3 w-[300px]" onMouseLeave={clearHover}>
+    <div className="absolute right-0 top-full mt-2 z-20 bg-popover border rounded-2xl shadow-xl p-3 w-[calc(100vw-2rem)] max-w-[300px] sm:w-[300px]" onMouseLeave={clearHover}>
       <div className="flex items-center justify-between mb-1"><span className="text-xs font-semibold">Text color & highlight</span><button onClick={onClose} className="p-1 hover:bg-accent rounded text-xs">✕</button></div>
       <div className="text-[10px] text-muted-foreground mb-2">
         {inlineMode
@@ -1825,14 +1836,14 @@ function placeholderFor(type: string) {
 
 function FloatingToolbar({ onFormat }: { onFormat:(cmd:string)=>void }) {
   return (
-    <div className="absolute -top-10 left-0 flex items-center gap-1 bg-popover border rounded-xl shadow-lg p-1 z-10">
-      <button onMouseDown={e=>{e.preventDefault(); onFormat('bold')}} className="px-2 py-1 rounded-lg hover:bg-accent font-bold text-sm">B</button>
-      <button onMouseDown={e=>{e.preventDefault(); onFormat('italic')}} className="px-2 py-1 rounded-lg hover:bg-accent italic text-sm">I</button>
-      <button onMouseDown={e=>{e.preventDefault(); onFormat('underline')}} className="px-2 py-1 rounded-lg hover:bg-accent underline text-sm">U</button>
-      <button onMouseDown={e=>{e.preventDefault(); onFormat('strikeThrough')}} className="px-2 py-1 rounded-lg hover:bg-accent line-through text-sm">S</button>
-      <button onMouseDown={e=>{e.preventDefault(); onFormat('insertUnorderedList')}} className="px-2 py-1 rounded-lg hover:bg-accent text-sm">• List</button>
-      <button onMouseDown={e=>{e.preventDefault(); const url=prompt('Enter URL'); if(url) document.execCommand('createLink', false, url); onFormat('')}} className="px-2 py-1 rounded-lg hover:bg-accent text-sm">Link</button>
-      <span className="text-xs border rounded px-1 ml-1">⌘B ⌘I</span>
+    <div className="absolute -top-10 left-1/2 -translate-x-1/2 sm:left-0 sm:translate-x-0 z-30 flex items-center gap-1 bg-popover border rounded-xl shadow-lg p-1.5 sm:p-1 w-max max-w-[calc(100vw-2.5rem)] overflow-x-auto scrollbar-none overscroll-contain">
+      <button onMouseDown={e=>{e.preventDefault(); onFormat('bold')}} className="px-3 py-2 sm:px-2 sm:py-1 min-h-[40px] sm:min-h-0 rounded-lg hover:bg-accent font-bold text-sm shrink-0">B</button>
+      <button onMouseDown={e=>{e.preventDefault(); onFormat('italic')}} className="px-3 py-2 sm:px-2 sm:py-1 min-h-[40px] sm:min-h-0 rounded-lg hover:bg-accent italic text-sm shrink-0">I</button>
+      <button onMouseDown={e=>{e.preventDefault(); onFormat('underline')}} className="px-3 py-2 sm:px-2 sm:py-1 min-h-[40px] sm:min-h-0 rounded-lg hover:bg-accent underline text-sm shrink-0">U</button>
+      <button onMouseDown={e=>{e.preventDefault(); onFormat('strikeThrough')}} className="px-3 py-2 sm:px-2 sm:py-1 min-h-[40px] sm:min-h-0 rounded-lg hover:bg-accent line-through text-sm shrink-0">S</button>
+      <button onMouseDown={e=>{e.preventDefault(); onFormat('insertUnorderedList')}} className="px-3 py-2 sm:px-2 sm:py-1 min-h-[40px] sm:min-h-0 rounded-lg hover:bg-accent text-sm shrink-0">• List</button>
+      <button onMouseDown={e=>{e.preventDefault(); const url=prompt('Enter URL'); if(url) document.execCommand('createLink', false, url); onFormat('')}} className="px-3 py-2 sm:px-2 sm:py-1 min-h-[40px] sm:min-h-0 rounded-lg hover:bg-accent text-sm shrink-0">Link</button>
+      <span className="hidden sm:inline text-xs border rounded px-1 ml-1 shrink-0">⌘B ⌘I</span>
     </div>
   )
 }
