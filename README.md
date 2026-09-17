@@ -1,5 +1,5 @@
 # OpenManas — Workspace OS
-![Description of image](public\cover-openmanas.png)
+![Description of image](public/cover-openmanas.png)
 
 A production-quality, full-stack collaborative workspace inspired by Notion + Linear + Craft + Obsidian + Airtable + AI-native tools. Dark-first, fast, extensible, block-based.
 
