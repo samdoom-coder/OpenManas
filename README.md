@@ -82,6 +82,7 @@ All POST/PATCH validated with Zod; errors return `{ error: ... }`.
 **Editor:** block types (paragraph, h1-3, bullet/numbered, todo, quote, divider, code, callout, toggle, table, image, video, bookmark, equation, page/database embed, mention) via BlockRegistry; markdown shortcuts (#, -, [], >, ```); slash commands (fuzzy, arrow+enter); block handle (turn into, duplicate, delete, color); drag-and-drop; inline formatting (bold/italic/underline/strike/link); floating toolbar; undo/redo-ready structure; autosave indicator.
 
 **Pages:** nested hierarchy, breadcrumbs, backlinks panel, favorites, archive/trash/restore, duplicate, share dialog (private/workspace/public + permissions), version history stub, cover/icon, properties.
+_________________________________________________________
 ![Description of image](public/banner-openmanas.png)
 
 **Databases:** dynamic properties (text/number/select/multi/status/checkbox/date/person/url/email/phone/formula/relation...), Table/Board (groupBy)/Calendar/Gallery/List views, filters (AND/OR/NOT), sorting, grouping, inline edit, column resize/visibility stubs, pagination via virtualization helper, relation rollup ready.
