@@ -72,7 +72,8 @@ export const mapWorkspace = (r: any) => r && {
 }
 export const mapPage = (r: any) => r && {
   id: r.id, workspaceId: r.workspace_id, parentId: r.parent_id ?? null,
-  title: r.title, icon: r.icon, cover: r.cover, description: r.description,
+  title: r.title, icon: r.icon, cover: r.cover, coverPosition: r.cover_position ?? 50,
+  description: r.description,
   properties: r.properties ?? {}, theme: r.theme ?? 'default',
   isFavorite: r.is_favorite, isArchived: r.is_archived,
   isTrashed: r.is_trashed, isShared: r.is_shared, shareMode: r.share_mode,

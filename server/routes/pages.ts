@@ -5,6 +5,13 @@ import { authStub, accessibleWorkspaceIds, pageSchema, requireWorkspaceAction, s
 import { db, saveDB } from '../state.js'
 import { v4 as uuid } from 'uuid'
 
+/** Clamp a cover focal position to an int 0-100 (default 50). */
+function clampCoverPos(v: unknown): number {
+  const n = typeof v === 'number' ? v : Number(v)
+  if (!Number.isFinite(n)) return 50
+  return Math.min(100, Math.max(0, Math.round(n)))
+}
+
 export function registerPageRoutes(app: Express) {
   // Pages — reads need viewer+, writes editor+, sharing changes + deletes admin.
   // Unfiltered lists are scoped to accessible workspaces (never cross-workspace).
@@ -65,13 +72,14 @@ export function registerPageRoutes(app: Express) {
       try {
         const d = parsed.data
         const withId = !!d.id
+        const coverPos = clampCoverPos((d as any).coverPosition)
         const rows = await pgQuery(
           withId
-            ? 'INSERT INTO pages(id, workspace_id, parent_id, title, icon, cover, description, properties, theme) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *'
-            : 'INSERT INTO pages(workspace_id, parent_id, title, icon, cover, description, properties, theme) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
+            ? 'INSERT INTO pages(id, workspace_id, parent_id, title, icon, cover, cover_position, description, properties, theme) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *'
+            : 'INSERT INTO pages(workspace_id, parent_id, title, icon, cover, cover_position, description, properties, theme) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
           withId
-            ? [d.id, d.workspaceId, d.parentId ?? null, d.title, (d as any).icon ?? null, (d as any).cover ?? null, (d as any).description ?? null, JSON.stringify((d as any).properties ?? {}), (d as any).theme ?? 'default']
-            : [d.workspaceId, d.parentId ?? null, d.title, (d as any).icon ?? null, (d as any).cover ?? null, (d as any).description ?? null, JSON.stringify((d as any).properties ?? {}), (d as any).theme ?? 'default'],
+            ? [d.id, d.workspaceId, d.parentId ?? null, d.title, (d as any).icon ?? null, (d as any).cover ?? null, coverPos, (d as any).description ?? null, JSON.stringify((d as any).properties ?? {}), (d as any).theme ?? 'default']
+            : [d.workspaceId, d.parentId ?? null, d.title, (d as any).icon ?? null, (d as any).cover ?? null, coverPos, (d as any).description ?? null, JSON.stringify((d as any).properties ?? {}), (d as any).theme ?? 'default'],
         )
         const page = mapPage(rows[0])
         await pgQuery('INSERT INTO activities(workspace_id, user_id, action, target_id, target_type) VALUES ($1,$2,$3,$4,$5)', [page.workspaceId, (req as any).userId, 'page_created', page.id, 'page']).catch(()=>{})
@@ -91,13 +99,18 @@ export function registerPageRoutes(app: Express) {
     if (!await requireWorkspaceAction(res, wsId, (req as any).userId, action)) return
     if (usingPg) {
       try {
-        const allowed = ['title','icon','cover','description','properties','theme','is_favorite','is_archived','is_trashed','is_shared','share_mode','parent_id'] as const
+        const allowed = ['title','icon','cover','cover_position','description','properties','theme','is_favorite','is_archived','is_trashed','is_shared','share_mode','parent_id'] as const
         const sets: string[] = []
         const vals: any[] = []
         const body = req.body as Record<string, any>
+        const rawCoverPos = body.coverPosition ?? body.cover_position
+        if (rawCoverPos !== undefined && !Number.isFinite(Number(rawCoverPos))) {
+          return res.status(400).json({ error: 'Invalid coverPosition — expected a number 0-100' })
+        }
         // accept both camelCase (client) and snake_case
         const norm: Record<string, any> = {
           title: body.title, icon: body.icon, cover: body.cover, description: body.description, theme: body.theme,
+          cover_position: rawCoverPos !== undefined ? clampCoverPos(rawCoverPos) : undefined,
           properties: body.properties !== undefined ? JSON.stringify(body.properties) : undefined,
           is_favorite: body.isFavorite ?? body.is_favorite, is_archived: body.isArchived ?? body.is_archived,
           is_trashed: body.isTrashed ?? body.is_trashed, is_shared: body.isShared ?? body.is_shared,
@@ -121,7 +134,14 @@ export function registerPageRoutes(app: Express) {
     }
     const page = db.pages.find(p=> p.id===req.params.id)
     if (!page) return res.status(404).json({ error:'Not found' })
-    Object.assign(page, req.body, { updatedAt: new Date().toISOString(), updatedBy: (req as any).userId })
+    const patch = { ...(req.body as Record<string, any>) }
+    if (patch.coverPosition !== undefined || patch.cover_position !== undefined) {
+      const raw = patch.coverPosition ?? patch.cover_position
+      if (!Number.isFinite(Number(raw))) return res.status(400).json({ error: 'Invalid coverPosition — expected a number 0-100' })
+      patch.coverPosition = clampCoverPos(raw)
+      delete patch.cover_position
+    }
+    Object.assign(page, patch, { updatedAt: new Date().toISOString(), updatedBy: (req as any).userId })
     saveDB()
     res.json(page)
   })
