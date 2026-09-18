@@ -138,6 +138,7 @@ const pagePayload = (p: Page) => ({
   title: p.title,
   icon: p.icon,
   cover: p.cover,
+  coverPosition: (p as Page).coverPosition ?? 50,
   description: p.description,
   theme: (p as any).theme,
   properties: p.properties ?? {},
