@@ -125,20 +125,33 @@ export function registerPageRoutes(app: Express) {
     saveDB()
     res.json(page)
   })
+  // Permanent delete (Trash → Delete forever, Empty trash, record-page
+  // cleanup). This is a HARD delete: blocks/comments/shares/versions go with
+  // the page (ON DELETE CASCADE on Postgres, mirrored on the JSON backend).
+  // Moving to trash is PATCH { isTrashed: true } — never this endpoint.
   app.delete('/api/pages/:id', authStub, async (req:any, res)=> {
     const wsId = await workspaceIdForPage(req.params.id)
     if (!wsId) return res.status(404).json({ error:'Not found' })
     if (!await requireWorkspaceAction(res, wsId, (req as any).userId, 'delete')) return
     if (usingPg) {
       try {
-        const out = await pgQuery('UPDATE pages SET is_trashed=true, updated_at=NOW() WHERE id=$1 RETURNING id', [req.params.id])
+        const out = await pgQuery('DELETE FROM pages WHERE id=$1 RETURNING id', [req.params.id])
         if (!out[0]) return res.status(404).json({ error:'Not found' })
         return res.json({ ok:true })
       } catch (e) { return res.status(500).json({ error: String((e as Error)?.message || e) }) }
     }
-    const page = db.pages.find(p=> p.id===req.params.id)
-    if (!page) return res.status(404).json({ error:'Not found' })
-    page.isTrashed = true; page.updatedAt = new Date().toISOString()
+    const idx = db.pages.findIndex(p=> p.id===req.params.id)
+    if (idx===-1) return res.status(404).json({ error:'Not found' })
+    const pageId = req.params.id as string
+    const blockIds = new Set(db.blocks.filter(b=> b.pageId===pageId).map(b=> b.id))
+    db.pages.splice(idx,1)
+    db.blocks = db.blocks.filter(b=> b.pageId!==pageId)
+    // mirror Postgres: child pages become top-level, record links are nulled
+    for (const p of db.pages) if (p.parentId===pageId) p.parentId = null
+    for (const r of db.records) if (r.pageId===pageId) r.pageId = undefined
+    db.comments = db.comments.filter(c=> c.pageId!==pageId && !blockIds.has(c.blockId))
+    db.shares = (db.shares ?? []).filter(s=> s.pageId!==pageId)
+    db.versions = (db.versions ?? []).filter((v:any)=> v.pageId!==pageId)
     saveDB()
     res.json({ ok:true })
   })
