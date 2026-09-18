@@ -1,4 +1,4 @@
-// Prisma schema — mirrors migrations/001 + 002s + 003_derived + 004_pgvector + 005_db_favorite + 006_share_links.
+// Prisma schema — mirrors migrations/001 + 002s + 003_derived + 004_pgvector + 005_db_favorite + 006_share_links + 010_cover_position.
 // Runtime uses `pg` Pool (server/pg.ts) against the same tables so the app runs
 // with or without `prisma generate`. Run `npx prisma db push` or
 // `npm run db:migrate` (raw SQL) to provision Postgres, then set DATABASE_URL.
@@ -54,6 +54,7 @@ model Page {
   title       String
   icon        String?
   cover       String?
+  coverPosition Int?    @default(50) @map("cover_position")
   description String?
   properties  Json     @default("{}")
   theme       String?  @default("default")
