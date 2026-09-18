@@ -173,6 +173,8 @@ interface AppState {
   movePage: (id: string, newParentId: string | null) => boolean
   updatePage: (id: string, patch: Partial<Page>) => void
   deletePage: (id: string) => void
+  /** Permanently remove a page + its blocks (used by Trash). No-op when missing. */
+  deletePagePermanently: (id: string) => void
   duplicatePage: (id: string) => void
   toggleFavorite: (id: string) => void
   archivePage: (id: string) => void
@@ -789,6 +791,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(s => ({ pages: s.pages.map(p => p.id===id ? { ...p, isTrashed: true } : p)}))
     persist(get())
     if (serverMode()) queuePush(`page:${id}`, () => patchPage(id, { isTrashed: true }))
+  },
+  deletePagePermanently: (id) => {
+    const s = get()
+    if (!s.pages.some((p) => p.id === id)) return
+    set((st) => ({
+      pages: st.pages.filter((p) => p.id !== id),
+      blocks: st.blocks.filter((b) => b.pageId !== id),
+      comments: st.comments.filter((c) => c.pageId !== id),
+      selectedPageId: st.selectedPageId === id ? null : st.selectedPageId,
+    }))
+    persist(get())
+    if (serverMode()) pushNow(() => deletePageRemote(id))
   },
   duplicatePage: (id) => {
     const p = get().pages.find(x=>x.id===id)
