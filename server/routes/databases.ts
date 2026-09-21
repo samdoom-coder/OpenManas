@@ -182,7 +182,7 @@ export function registerDatabaseRoutes(app: Express) {
     res.json({ rows: all.slice(start, start + pageSize), total: all.length, page, pageSize })
   })
   app.post('/api/databases/:id/records', authStub, async (req:any,res)=> {
-    const parsed = z.object({ id: uuidOrAbsent, properties: z.record(z.any()).optional(), pageId: z.string().optional() }).safeParse(req.body)
+    const parsed = z.object({ id: uuidOrAbsent, properties: z.record(z.string(), z.any()).optional(), pageId: z.string().optional() }).safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
     const postWsId = await workspaceIdForDatabase(req.params.id)
     if (!postWsId) return res.status(404).json({ error:'Not found' })
