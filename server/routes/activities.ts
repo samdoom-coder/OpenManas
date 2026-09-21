@@ -36,7 +36,7 @@ export function registerActivityRoutes(app: Express) {
       action: z.enum(['page_created','page_updated','block_created','block_deleted','record_created','record_updated','comment_added','file_uploaded','page_shared','page_archived','page_favorited','database_created','database_deleted','task_assigned','mention']),
       targetId: z.string().min(1).max(100),
       targetType: z.string().min(1).max(50),
-      metadata: z.record(z.any()).optional(),
+      metadata: z.record(z.string(), z.any()).optional(),
     }).safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.format() })
     const { role, missing } = await getWorkspaceRole(parsed.data.workspaceId, (req as any).userId)
