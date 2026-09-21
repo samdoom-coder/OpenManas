@@ -174,7 +174,7 @@ export const blockSchema = z.object({
   content: z.string().max(MAX_BLOCK_CONTENT),
   position: z.number(),
   parentId: z.string().nullable().optional(),
-  properties: z.record(z.any()).optional(),
+  properties: z.record(z.string(), z.any()).optional(),
 })
 
 export const versionBodySchema = z.object({
