@@ -7,11 +7,14 @@ Distinct visual identity: soft neutrals, rounded 16-24px panels, subtle borders,
 
 ## Stack
 
-- **Frontend:** Vite + React 18 + TypeScript + Tailwind + Zustand + Framer Motion + lucide-react
-- **Backend:** Express + Zod validation + file persistence (swappable to PostgreSQL + Prisma)
-- **Search:** Fuse.js + semantic abstraction (pgvector ready)
+- **Frontend:** Vite 8 + React 19 + TypeScript 7 + Tailwind CSS 4 + Zustand 5 + lucide-react 1 + react-router 7
+- **Backend:** Express 5 + Zod 4 validation + PostgreSQL (`pg`) + Prisma 7 + JSON dev fallback
+- **Realtime:** Yjs + y-websocket collab server (`npm run collab`, `COLLAB_PORT`)
+- **Search:** Fuse.js + semantic abstraction (pgvector, `migrations/004_pgvector.sql`)
 - **Storage:** Abstracted provider (local → S3/R2/Supabase/MinIO)
 - **AI:** Centralized AIService with provider abstraction (OpenAI/Anthropic/Google/DeepSeek/OpenRouter)
+
+Prerequisites: Node >=20.19 (22 recommended — see `.nvmrc`), Postgres with `pgcrypto` + `pgvector` for production. Copy `.env.example` to `.env` (`DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGIN`, `COLLAB_PORT`).
 
 ## Quick Start
 
@@ -20,11 +23,19 @@ npm install
 # dev frontend + backend
 npm run dev      # Vite on 5173
 npm run server   # Express on 3001
-# or both:
+npm run collab   # Yjs WS on 3002
+# or all three:
 npm run dev:all
 
-# seeding (frontend uses localStorage seed; backend seeds server/db.json)
+# postgres: provision then seed
+npm run db:migrate
+npm run db:seed
+# or frontend-only seed (localStorage + server/db.json fallback)
 npm run seed
+
+# checks
+npm run typecheck
+npm test
 
 # build
 npm run build
@@ -39,7 +50,7 @@ App runs at http://localhost:5173 (proxies /api → 3001).
 Sign in → Workspace → Create Page → Open Editor → Add Blocks → Edit → Reorder → Autosave → Navigate away → Return (still there)
 ```
 
-Autosave is debounced (400ms), persisted to localStorage (`openmanas_state_v1`) and backend via `server/db.json`.
+Autosave is debounced (400ms), persisted to localStorage (`openmanas_state_v1`) and backend (Postgres when `DATABASE_URL` is set, else `server/db.json`).
 
 ## Architecture
 
@@ -63,7 +74,8 @@ src/
   data/seed.ts          # Realistic Acme Workspace seed
 server/
   index.ts              # Express API with Zod, transactions, consistent error shape
-  db.json               # JSON persistence (swap to Postgres via DATABASE_URL)
+  pg.ts / migrate.ts    # Postgres pool + raw-SQL migrations in migrations/
+  collabServer.ts       # Yjs WS realtime server
 ```
 
 ## API
