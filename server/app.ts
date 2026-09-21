@@ -47,7 +47,7 @@ app.use(express.json({ limit: '10mb' }))
 app.use(generalLimiter)
 
 if (process.env.NODE_ENV === 'production' && jwtSecretIsDefault()) {
-  console.warn('[security] JWT_SECRET is unset or default — set a long random value in production.')
+  throw new Error('[security] JWT_SECRET is unset or default — set a long random value in production (e.g. `openssl rand -base64 48`).')
 }
 
 registerMiscRoutes(app) // /health first (no auth), then API routers

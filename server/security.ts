@@ -112,3 +112,17 @@ export function jwtSecretIsDefault(): boolean {
   const s = process.env.JWT_SECRET ?? ''
   return !s || s === 'dev-secret-change-me' || s === 'change-me-to-a-long-random-string'
 }
+
+// --- Environment gates (auth hardening) ---
+// Production = NODE_ENV=production. Demo backdoors (`demo-token`,
+// `x-user-id` spoofing, passwordless accounts) are only allowed outside
+// production, unless explicitly forced with REQUIRE_AUTH=1 (useful for
+// staging or for dev setups that want prod-like behavior).
+export function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production'
+}
+
+export function authBypassAllowed(): boolean {
+  if (process.env.REQUIRE_AUTH === '1') return false
+  return !isProduction()
+}

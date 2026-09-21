@@ -5,8 +5,9 @@
 // with Postgres bytea or Redis instead of the filesystem.
 //
 // Auth: clients send ?token=<jwt|demo-token> (y-websocket `params` option).
-// demo-token is accepted for zero-setup dev; set COLLAB_REQUIRE_AUTH=1 in
-// production to require a real JWT (see server/auth.ts).
+// demo-token is accepted for zero-setup dev only. Production requires a
+// real JWT by default; set COLLAB_ALLOW_DEMO=1 to explicitly re-allow it
+// (not recommended). COLLAB_REQUIRE_AUTH=1 is kept as a legacy alias.
 import { WebSocketServer, WebSocket } from 'ws'
 import * as Y from 'yjs'
 import * as syncProtocol from 'y-protocols/sync'
@@ -21,7 +22,11 @@ import { verifyToken } from './auth.js'
 dotenv.config()
 
 const PORT = process.env.COLLAB_PORT ? Number(process.env.COLLAB_PORT) : 3002
-const REQUIRE_AUTH = process.env.COLLAB_REQUIRE_AUTH === '1'
+const REQUIRE_AUTH =
+  process.env.COLLAB_REQUIRE_AUTH === '1' ||
+  process.env.REQUIRE_AUTH === '1' ||
+  process.env.NODE_ENV === 'production'
+const ALLOW_DEMO = process.env.COLLAB_ALLOW_DEMO === '1'
 const DATA_DIR = path.join(process.cwd(), 'server', 'collab-data')
 const PING_INTERVAL = 30_000
 
@@ -90,7 +95,7 @@ function broadcast(entry: DocEntry, bytes: Uint8Array) {
 
 function checkAuth(token: string | null): boolean {
   if (!token) return false
-  if (token === 'demo-token') return !REQUIRE_AUTH
+  if (token === 'demo-token') return ALLOW_DEMO || !REQUIRE_AUTH
   return verifyToken(token) !== null
 }
 
