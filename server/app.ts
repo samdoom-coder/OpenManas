@@ -37,6 +37,8 @@ app.use(helmet({
       // Editor embeds user images/video via blob:/data: URLs.
       'img-src': ["'self'", 'data:', 'blob:'],
       'media-src': ["'self'", 'data:', 'blob:'],
+      // API + Yjs collab WS (VITE_COLLAB_URL) must be reachable in prod.
+      'connect-src': ["'self'", 'https:', 'wss:', 'ws:', 'data:', 'blob:'],
     },
   },
 }))
@@ -74,8 +76,12 @@ app.use(express.static(distDir))
 // SPA fallback for react-router deep links (/page/:id, /settings, …).
 // Unknown /api/* paths stay JSON 404s; everything else serves index.html
 // when a production build exists.
-app.get('*', (req, res) => {
+// NOTE: Express 5 removed `app.get('*')` (path-to-regexp v8) — `app.use`
+// fallback works on both Express 4 and 5.
+app.use((req, res) => {
   if (req.path.startsWith('/api')) return res.status(404).json({ error: 'Not found' })
+  // Only handle GETs for SPA fallback; other methods fall through to 404.
+  if (req.method !== 'GET') return res.status(404).send('Not found')
   const indexFile = path.join(distDir, 'index.html')
   if (fs.existsSync(indexFile)) return res.sendFile(indexFile)
   return res.status(404).send('Not found')
