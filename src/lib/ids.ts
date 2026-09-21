@@ -10,7 +10,7 @@ export function newId(): string {
   } catch { /* fallback below */ }
   // Fallback: 122 random bits, v4 layout.
   const b = new Uint8Array(16)
-  const rnd = (arr: Uint8Array) => {
+  const rnd = (arr: Uint8Array<ArrayBuffer>) => {
     if (typeof crypto !== 'undefined' && crypto.getRandomValues) return crypto.getRandomValues(arr)
     for (let i = 0; i < arr.length; i++) arr[i] = Math.floor(Math.random() * 256)
     return arr
